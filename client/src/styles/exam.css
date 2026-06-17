@@ -1,0 +1,571 @@
+/* ── Exam taking layout ── */
+.exam-container {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-tertiary);
+}
+
+.exam-sidebar {
+  width: 200px;
+  background: var(--bg-primary);
+  border-right: 0.5px solid var(--border-subtle);
+  padding: 1.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.exam-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.exam-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  background: var(--bg-primary);
+  border-bottom: 0.5px solid var(--border-subtle);
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.exam-topbar-title {
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.exam-topbar-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+.exam-content {
+  flex: 1;
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+.exam-question-area {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.exam-question-number {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-hint);
+  margin-bottom: 0.25rem;
+}
+
+.exam-question-text {
+  font-size: 17px;
+  font-weight: 500;
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+}
+
+.exam-nav-buttons {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2rem;
+  gap: 0.75rem;
+}
+.exam-nav-buttons .btn {
+  min-width: 120px;
+}
+
+/* ── Results view ── */
+.result-container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.result-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.result-question {
+  margin-bottom: 1.5rem;
+}
+
+.result-question-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.result-question-text {
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.result-score-display {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.result-score-display.correct { color: var(--teal-600); }
+.result-score-display.partial { color: var(--amber-600); }
+.result-score-display.wrong   { color: var(--red-600); }
+
+/* ── Landing page ── */
+.landing-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  padding: 2rem;
+}
+
+.landing-logo {
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--purple-600);
+  letter-spacing: -1px;
+}
+
+.landing-subtitle {
+  font-size: 16px;
+  color: var(--text-secondary);
+  max-width: 400px;
+  text-align: center;
+}
+
+.landing-cards {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.landing-card {
+  padding: 2rem;
+  border-radius: var(--radius-xl);
+  border: 0.5px solid var(--border-subtle);
+  background: var(--bg-primary);
+  width: 260px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.landing-card:hover {
+  border-color: var(--purple-600);
+  box-shadow: 0 4px 12px rgba(83, 74, 183, 0.15);
+}
+
+.landing-card-icon {
+  font-size: 40px;
+  margin-bottom: 0.75rem;
+}
+
+.landing-card-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.landing-card-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── Login pages ── */
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 500px;
+}
+
+.login-card h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.login-card .login-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+}
+
+.login-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  margin-top: 1rem;
+  color: var(--text-secondary);
+}
+
+/* ── Dashboard ── */
+.dash-stats {
+  margin-bottom: 2rem;
+}
+
+.dash-section {
+  margin-bottom: 2rem;
+}
+
+.dash-section h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.dash-exam-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dash-exam-info h3 {
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.dash-exam-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 12px;
+}
+
+/* ── Exam detail ── */
+.detail-questions {
+  margin-bottom: 2rem;
+}
+
+.detail-question-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 0.5px solid var(--border-subtle);
+}
+
+.detail-question-row:last-child {
+  border-bottom: none;
+}
+
+.detail-q-num {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-hint);
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.detail-q-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-q-text {
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.detail-q-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.detail-q-options {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-q-option {
+  font-size: 13px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  display: inline-block;
+  width: fit-content;
+}
+
+.detail-q-option.is-correct {
+  background: var(--teal-50);
+  color: var(--teal-600);
+  font-weight: 500;
+}
+
+/* ── Marking view ── */
+.marking-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.marking-student-info {
+  font-size: 14px;
+}
+
+.marking-student-info h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.marking-score-display {
+  text-align: right;
+}
+
+.marking-score-value {
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--purple-600);
+  line-height: 1;
+}
+
+.marking-score-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.marking-question {
+  margin-bottom: 1.5rem;
+}
+
+.marking-q-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.marking-q-points-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.marking-q-points-input .input {
+  width: 80px;
+  min-height: 38px;
+}
+
+.marking-q-feedback {
+  margin-top: 0.5rem;
+}
+
+/* ═══════════════════════════════════════════════
+   RESPONSIVE — TABLET (≤ 768px)
+   ═══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .exam-container {
+    flex-direction: column;
+  }
+
+  .exam-sidebar {
+    width: 100% !important;
+    position: static !important;
+    height: auto !important;
+    border-right: none !important;
+    border-bottom: 0.5px solid var(--border-subtle);
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem !important;
+    gap: 8px;
+  }
+
+  .exam-sidebar > * { flex-shrink: 0; }
+
+  .exam-topbar {
+    padding: 0.5rem 1rem;
+    gap: 0.5rem;
+  }
+
+  .exam-topbar-title {
+    font-size: 14px;
+    max-width: 150px;
+  }
+
+  .exam-topbar-info {
+    gap: 0.5rem;
+  }
+
+  .exam-content {
+    padding: 1rem;
+  }
+
+  .exam-nav-buttons {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+  .exam-nav-buttons .btn {
+    min-width: 0;
+    flex: 1;
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+
+  .result-container {
+    padding: 1rem;
+  }
+
+  .result-header {
+    margin-bottom: 1.25rem;
+  }
+
+  .landing-cards {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .marking-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .marking-score-display {
+    text-align: left;
+  }
+
+  .marking-score-value {
+    font-size: 26px;
+  }
+
+  /* Login card responsive */
+  .login-container {
+    padding: 1rem 0.75rem;
+    align-items: flex-start;
+    padding-top: 2rem;
+  }
+  .login-card {
+    max-width: 100% !important;
+  }
+
+  /* Results score */
+  .score-large { font-size: 32px; }
+  .score-large span { font-size: 15px; }
+}
+
+/* ═══════════════════════════════════════════════
+   RESPONSIVE — PHONE (≤ 480px)
+   ═══════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .exam-sidebar {
+    padding: 0.5rem 0.75rem !important;
+    gap: 6px;
+  }
+
+  .exam-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .exam-topbar-info {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .exam-question-area {
+    padding: 0;
+  }
+
+  .exam-question-text {
+    font-size: 15px;
+    margin-bottom: 1rem;
+  }
+
+  .exam-nav-buttons {
+    margin-top: 1.5rem;
+    flex-direction: column;
+  }
+  .exam-nav-buttons .btn {
+    width: 100%;
+  }
+
+  .landing-logo {
+    font-size: 26px;
+  }
+
+  .landing-subtitle {
+    font-size: 14px;
+  }
+
+  .landing-card {
+    width: 100%;
+    padding: 1.5rem;
+  }
+
+  .landing-card-icon {
+    font-size: 32px;
+  }
+
+  .landing-card-title {
+    font-size: 16px;
+  }
+
+  .login-container {
+    padding: 1.25rem 0.75rem;
+    padding-top: 3rem;
+  }
+
+  .login-card h2 {
+    font-size: 18px;
+  }
+
+  .login-card .login-subtitle {
+    font-size: 13px;
+  }
+
+  .result-header h1 {
+    font-size: 18px;
+  }
+
+  .result-header p {
+    font-size: 13px;
+  }
+
+  .marking-q-points-input .input {
+    width: 60px;
+  }
+
+  .marking-score-value {
+    font-size: 22px;
+  }
+
+  .score-large { font-size: 28px; }
+  .score-large span { font-size: 14px; }
+  .grade-label { font-size: 16px; }
+
+  .result-question {
+    margin-bottom: 1rem;
+  }
+}

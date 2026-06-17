@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Blue hexagon background -->
+  <path d="M 100 10 L 180 50 L 180 130 L 100 170 L 20 130 L 20 50 Z" fill="#1e5a96" stroke="none"/>
+  
+  <!-- Gold star in center -->
+  <path d="M 100 35 L 115 85 L 167 85 L 125 125 L 140 175 L 100 135 L 60 175 L 75 125 L 33 85 L 85 85 Z" fill="#f4c430" stroke="none"/>
+</svg>

@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: examflow-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 4000
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        value: examflow_super_secret_jwt_key_2024_please_change_in_production_64chars
+      - key: TEACHER_PASSWORD
+        value: admin123
+      - key: CORS_ORIGIN
+        value: https://examflow.vercel.app
+    disk:
+      name: sqlite-data
+      mountPath: /var/data
+      sizeGB: 1
