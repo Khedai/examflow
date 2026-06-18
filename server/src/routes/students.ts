@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireStudent } from '../middleware/auth';
-import db from '../db';
+import { getOne, query } from '../db';
 
 const router = Router();
 
@@ -35,7 +35,7 @@ setInterval(() => {
 }, 300000).unref();
 
 // POST /api/students/login
-router.post('/login', loginRateLimit, (req: Request, res: Response) => {
+router.post('/login', loginRateLimit, async (req: Request, res: Response) => {
   try {
     const { name, surname, studentId, cell } = req.body;
 
@@ -48,18 +48,22 @@ router.post('/login', loginRateLimit, (req: Request, res: Response) => {
 
     const sessionToken = uuidv4();
 
-    const existing = db.prepare('SELECT id FROM students WHERE student_id = ?').get(studentId.trim()) as any;
+    const existing = await getOne('SELECT id FROM students WHERE student_id = $1', [studentId.trim()]);
 
     let student: any;
     if (existing) {
-      db.prepare('UPDATE students SET name=?, surname=?, cell=?, session_token=? WHERE id=?')
-        .run(name.trim(), surname.trim(), (cell || '').trim(), sessionToken, existing.id);
-      student = db.prepare('SELECT * FROM students WHERE id = ?').get(existing.id);
+      await query(
+        'UPDATE students SET name=$1, surname=$2, cell=$3, session_token=$4 WHERE id=$5',
+        [name.trim(), surname.trim(), (cell || '').trim(), sessionToken, existing.id]
+      );
+      student = await getOne('SELECT * FROM students WHERE id = $1', [existing.id]);
     } else {
       const id = uuidv4();
-      db.prepare('INSERT INTO students (id, student_id, name, surname, cell, session_token) VALUES (?,?,?,?,?,?)')
-        .run(id, studentId.trim(), name.trim(), surname.trim(), (cell || '').trim(), sessionToken);
-      student = db.prepare('SELECT * FROM students WHERE id = ?').get(id);
+      await query(
+        'INSERT INTO students (id, student_id, name, surname, cell, session_token) VALUES ($1,$2,$3,$4,$5,$6)',
+        [id, studentId.trim(), name.trim(), surname.trim(), (cell || '').trim(), sessionToken]
+      );
+      student = await getOne('SELECT * FROM students WHERE id = $1', [id]);
     }
 
     return res.json({
@@ -79,9 +83,9 @@ router.post('/login', loginRateLimit, (req: Request, res: Response) => {
 });
 
 // GET /api/students/me
-router.get('/me', requireStudent, (req: Request, res: Response) => {
+router.get('/me', requireStudent, async (req: Request, res: Response) => {
   try {
-    const s = db.prepare('SELECT id, student_id, name, surname, cell FROM students WHERE id = ?').get(req.studentId) as any;
+    const s = await getOne('SELECT id, student_id, name, surname, cell FROM students WHERE id = $1', [req.studentId]);
     if (!s) return res.status(404).json({ error: 'Student not found' });
 
     return res.json({

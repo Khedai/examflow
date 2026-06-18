@@ -11,12 +11,10 @@ services:
       - key: NODE_ENV
         value: production
       - key: JWT_SECRET
-        value: examflow_super_secret_jwt_key_2024_please_change_in_production_64chars
+        value: examflow_super_secret_jwt_key_2024_change_me
       - key: TEACHER_PASSWORD
         value: admin123
       - key: CORS_ORIGIN
         value: https://examflow.vercel.app
-    disk:
-      name: sqlite-data
-      mountPath: /var/data
-      sizeGB: 1
+      - key: DATABASE_URL
+        sync: false

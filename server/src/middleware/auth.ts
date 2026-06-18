@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import db from '../db';
+import { getOne } from '../db';
 
 declare global {
   namespace Express {
@@ -36,11 +36,11 @@ export function optionalTeacher(req: Request, res: Response, next: NextFunction)
   next();
 }
 
-export function requireStudent(req: Request, res: Response, next: NextFunction) {
+export async function requireStudent(req: Request, res: Response, next: NextFunction) {
   const token = req.headers['x-student-token'] as string;
   if (!token) return res.status(401).json({ error: 'No student token' });
   try {
-    const row = db.prepare('SELECT id FROM students WHERE session_token = ?').get(token) as any;
+    const row = await getOne('SELECT id FROM students WHERE session_token = $1', [token]);
     if (!row) return res.status(401).json({ error: 'Invalid student token' });
     req.studentId = row.id;
     next();

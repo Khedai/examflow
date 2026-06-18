@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { requireTeacher } from '../middleware/auth';
-import db from '../db';
+import { getOne, getAll } from '../db';
 
 const router = Router();
 
@@ -34,7 +34,7 @@ setInterval(() => {
   }
 }, 300000).unref();
 
-router.post('/login', loginRateLimit, (req: Request, res: Response) => {
+router.post('/login', loginRateLimit, async (req: Request, res: Response) => {
   try {
     const { password } = req.body;
     if (!password) return res.status(422).json({ error: 'Password is required' });
@@ -54,15 +54,18 @@ router.post('/login', loginRateLimit, (req: Request, res: Response) => {
   }
 });
 
-router.get('/stats', requireTeacher, (req: Request, res: Response) => {
+router.get('/stats', requireTeacher, async (req: Request, res: Response) => {
   try {
-    const totalExams = (db.prepare('SELECT COUNT(*) as c FROM exams').get() as any).c;
-    const pending = (db.prepare("SELECT COUNT(*) as c FROM submissions WHERE status = 'SUBMITTED'").get() as any).c;
-    const marked = (db.prepare("SELECT COUNT(*) as c FROM submissions WHERE status = 'MARKED'").get() as any).c;
-    const inProgress = (db.prepare("SELECT COUNT(*) as c FROM submissions WHERE status = 'STARTED'").get() as any).c;
+    const examsRow = await getOne('SELECT COUNT(*) as c FROM exams');
+    const pendingRow = await getOne("SELECT COUNT(*) as c FROM submissions WHERE status = $1", ['SUBMITTED']);
+    const markedRow = await getOne("SELECT COUNT(*) as c FROM submissions WHERE status = $1", ['MARKED']);
+    const inProgressRow = await getOne("SELECT COUNT(*) as c FROM submissions WHERE status = $1", ['STARTED']);
 
     return res.json({
-      totalExams, pending, marked, inProgress: inProgress,
+      totalExams: parseInt(examsRow?.c || '0'),
+      pending: parseInt(pendingRow?.c || '0'),
+      marked: parseInt(markedRow?.c || '0'),
+      inProgress: parseInt(inProgressRow?.c || '0'),
     });
   } catch (err: any) {
     console.error('Stats error:', err);

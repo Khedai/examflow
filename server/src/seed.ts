@@ -1,43 +1,47 @@
 import { v4 as uuidv4 } from 'uuid';
-import db from './db';
+import { getOne, transaction } from './db';
 
-export function seed() {
-  const examCount = (db.prepare('SELECT COUNT(*) as c FROM exams').get() as any).c;
-
-  const insertExam = db.prepare('INSERT INTO exams (id, title, description, duration, start_time, published) VALUES (?,?,?,?,?,?)');
-  const insertQ = db.prepare('INSERT INTO questions (id, exam_id, position, type, text, options, correct, points) VALUES (?,?,?,?,?,?,?,?)');
+export async function seed() {
+  const examCountRow = await getOne('SELECT COUNT(*) as c FROM exams');
+  const examCount = parseInt(examCountRow?.c || '0');
 
   // ── Seed Mathematics Quiz (if no exams exist at all) ──
   if (examCount === 0) {
     const mathExamId = uuidv4();
-    const txn = db.transaction(() => {
-      insertExam.run(mathExamId, 'Mathematics Quiz', 'A basic mathematics assessment covering addition, subtraction, shapes, and problem solving.', 30, null, 1);
-      insertQ.run(uuidv4(), mathExamId, 1, 'mcq', 'What is 15 + 27?', JSON.stringify(['40', '42', '52', '38']), '42', 5);
-      insertQ.run(uuidv4(), mathExamId, 2, 'mcq', 'Which shape has 4 equal sides?', JSON.stringify(['Rectangle', 'Triangle', 'Square', 'Circle']), 'Square', 5);
-      insertQ.run(uuidv4(), mathExamId, 3, 'short', 'Explain how to check if a number is even.', null, null, 5);
-      insertQ.run(uuidv4(), mathExamId, 4, 'short', 'What is 100 - 37? Show your working.', null, null, 5);
-      insertQ.run(uuidv4(), mathExamId, 5, 'long', 'A shop sells apples for R2 each and oranges for R3 each. If you buy 5 apples and 3 oranges, how much do you spend in total? Explain your steps.', null, null, 5);
+    await transaction(async (client) => {
+      await client.query(
+        'INSERT INTO exams (id, title, description, duration, start_time, published) VALUES ($1,$2,$3,$4,$5,$6)',
+        [mathExamId, 'Mathematics Quiz', 'A basic mathematics assessment covering addition, subtraction, shapes, and problem solving.', 30, null, 1]
+      );
+      const qs = [
+        { pos: 1, type: 'mcq', text: 'What is 15 + 27?', options: JSON.stringify(['40', '42', '52', '38']), correct: '42', points: 5 },
+        { pos: 2, type: 'mcq', text: 'Which shape has 4 equal sides?', options: JSON.stringify(['Rectangle', 'Triangle', 'Square', 'Circle']), correct: 'Square', points: 5 },
+        { pos: 3, type: 'short', text: 'Explain how to check if a number is even.', options: null, correct: null, points: 5 },
+        { pos: 4, type: 'short', text: 'What is 100 - 37? Show your working.', options: null, correct: null, points: 5 },
+        { pos: 5, type: 'long', text: 'A shop sells apples for R2 each and oranges for R3 each. If you buy 5 apples and 3 oranges, how much do you spend in total? Explain your steps.', options: null, correct: null, points: 5 },
+      ];
+      for (const q of qs) {
+        await client.query(
+          'INSERT INTO questions (id, exam_id, position, type, text, options, correct, points) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+          [uuidv4(), mathExamId, q.pos, q.type, q.text, q.options, q.correct, q.points]
+        );
+      }
     });
-    txn();
     console.log('Seeded sample Mathematics Quiz exam');
   }
 
   // ── Seed Khusela Assessment (always seed if not already present) ──
   const khuselaId = 'khusela-assessment-2026';
-  const existingKhusela = db.prepare('SELECT id FROM exams WHERE id = ?').get(khuselaId);
+  const existingKhusela = await getOne('SELECT id FROM exams WHERE id = $1', [khuselaId]);
   if (existingKhusela) {
     console.log('Khusela Assessment already seeded — skipping');
     return;
   }
 
-  const khuselaTxn = db.transaction(() => {
-    insertExam.run(
-      khuselaId,
-      'Khusela Assessment Questionnaire 2026',
-      'Please answer all questions below in full. This assessment covers workplace conduct, debt management, sales and customer service. GOOD LUCK!!!',
-      60,
-      null,
-      1
+  await transaction(async (client) => {
+    await client.query(
+      'INSERT INTO exams (id, title, description, duration, start_time, published) VALUES ($1,$2,$3,$4,$5,$6)',
+      [khuselaId, 'Khusela Assessment Questionnaire 2026', 'Please answer all questions below in full. This assessment covers workplace conduct, debt management, sales and customer service. GOOD LUCK!!!', 60, null, 1]
     );
 
     const questions: { position: number; type: string; text: string; points: number }[] = [
@@ -64,7 +68,7 @@ export function seed() {
       { position: 21, type: 'long',  text: 'Does image matter and why?', points: 3 },
       { position: 22, type: 'long',  text: 'Describe the proper manner in which one should answer a company phone?', points: 7 },
       { position: 23, type: 'long',  text: 'Why is it important for employees to reach/achieve their daily, weekly and monthly targets at all times?', points: 6 },
-      { position: 24, type: 'long',  text: 'Complete the case study with calculation included: Khusela Debt Management has a sales and direct marketing department with a staff complement of 20 agents. They have a monthly target of 500 signed closed deals. Please confirm each agent\'s daily, weekly and monthly target. Show your Calculation and state the Target for: Daily / Weekly / Monthly', points: 9 },
+      { position: 24, type: 'long',  text: "Complete the case study with calculation included: Khusela Debt Management has a sales and direct marketing department with a staff complement of 20 agents. They have a monthly target of 500 signed closed deals. Please confirm each agent's daily, weekly and monthly target. Show your Calculation and state the Target for: Daily / Weekly / Monthly", points: 9 },
       { position: 25, type: 'long',  text: 'Give a clear understanding as to why it is important for companies to process statistics monthly?', points: 4 },
       { position: 26, type: 'short', text: 'What is your understanding when you hear the word sales?', points: 3 },
       { position: 27, type: 'long',  text: 'Explain in your own words why clients/customers stay or leave a company? A) Why clients/customers STAY (3 reasons) B) Why clients/customers LEAVE (3 reasons)', points: 6 },
@@ -72,19 +76,11 @@ export function seed() {
     ];
 
     for (const q of questions) {
-      insertQ.run(
-        uuidv4(),
-        khuselaId,
-        q.position,
-        q.type,
-        q.text,
-        null,   // options (none are MCQ)
-        null,   // correct (none are MCQ)
-        q.points
+      await client.query(
+        'INSERT INTO questions (id, exam_id, position, type, text, options, correct, points) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [uuidv4(), khuselaId, q.position, q.type, q.text, null, null, q.points]
       );
     }
   });
-
-  khuselaTxn();
   console.log('Seeded Khusela Assessment Questionnaire 2026 (28 questions, 92 points)');
 }

@@ -1,24 +1,24 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireTeacher, requireStudent, optionalTeacher } from '../middleware/auth';
-import db from '../db';
+import { getOne, getAll, run, transaction } from '../db';
 
 const router = Router();
 
 // Helper: try to get student ID from token if present
-function tryGetStudentId(req: Request): string | null {
+async function tryGetStudentId(req: Request): Promise<string | null> {
   const token = req.headers['x-student-token'] as string;
   if (!token) return null;
-  const row = db.prepare('SELECT id FROM students WHERE session_token = ?').get(token) as any;
+  const row = await getOne('SELECT id FROM students WHERE session_token = $1', [token]);
   return row?.id || null;
 }
 
 // ─── TEACHER ROUTES ───────────────────────────────────────
 
 // GET /api/submissions — teacher: all, student: their own
-router.get('/', optionalTeacher, (req: Request, res: Response) => {
+router.get('/', optionalTeacher, async (req: Request, res: Response) => {
   try {
-    const studentId = tryGetStudentId(req);
+    const studentId = await tryGetStudentId(req);
     const isTeacher = req.teacherAuthed === true;
 
     if (!isTeacher && !studentId) return res.status(401).json({ error: 'Unauthorized' });
@@ -33,29 +33,30 @@ router.get('/', optionalTeacher, (req: Request, res: Response) => {
       WHERE 1=1
     `;
     const params: any[] = [];
+    let paramIdx = 1;
 
     if (!isTeacher) {
-      sql += ' AND s.student_id = ?';
+      sql += ` AND s.student_id = $${paramIdx++}`;
       params.push(studentId);
     }
 
     if (status && ['STARTED', 'SUBMITTED', 'MARKED'].includes(status as string)) {
-      sql += ' AND s.status = ?';
+      sql += ` AND s.status = $${paramIdx++}`;
       params.push(status);
     }
     if (examId && typeof examId === 'string') {
-      sql += ' AND s.exam_id = ?';
+      sql += ` AND s.exam_id = $${paramIdx++}`;
       params.push(examId);
     }
     if (search && typeof search === 'string' && isTeacher) {
-      sql += ' AND (st.name LIKE ? OR st.surname LIKE ? OR st.student_id LIKE ?)';
       const q = `%${search}%`;
+      sql += ` AND (st.name ILIKE $${paramIdx} OR st.surname ILIKE $${paramIdx+1} OR st.student_id ILIKE $${paramIdx+2})`;
       params.push(q, q, q);
     }
     sql += ' ORDER BY s.created_at DESC';
 
-    const rows = db.prepare(sql).all(...params) as any[];
-    const submissions = rows.map((row) => ({
+    const rows = await getAll(sql, params);
+    const submissions = rows.map((row: any) => ({
       id: row.id,
       examId: row.exam_id,
       examTitle: row.exam_title,
@@ -74,28 +75,29 @@ router.get('/', optionalTeacher, (req: Request, res: Response) => {
 });
 
 // GET /api/submissions/:id (teacher detail)
-router.get('/:id', requireTeacher, (req: Request, res: Response) => {
+router.get('/:id', requireTeacher, async (req: Request, res: Response) => {
   try {
-    const sub = db.prepare(`
+    const id = req.params.id as string;
+    const sub = await getOne(`
       SELECT s.*, st.student_id as st_id, st.name as st_name, st.surname as st_surname, st.cell as st_cell,
              e.title as exam_title, e.published as exam_published
       FROM submissions s
       JOIN students st ON st.id = s.student_id
       JOIN exams e ON e.id = s.exam_id
-      WHERE s.id = ?
-    `).get(req.params.id) as any;
+      WHERE s.id = $1
+    `, [id]);
 
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
 
-    const answers = db.prepare(`
-      SELECT a.id, a.question_id as questionId, q.text as questionText, q.type as questionType,
-             q.points as maxPoints, a.answer_text as answerText, a.awarded_points as awardedPoints,
+    const answers = await getAll(`
+      SELECT a.id, a.question_id as "questionId", q.text as "questionText", q.type as "questionType",
+             q.points as "maxPoints", a.answer_text as "answerText", a.awarded_points as "awardedPoints",
              a.feedback, q.correct
       FROM answers a
       JOIN questions q ON q.id = a.question_id
-      WHERE a.submission_id = ?
+      WHERE a.submission_id = $1
       ORDER BY q.position
-    `).all(req.params.id) as any[];
+    `, [id]);
 
     return res.json({
       id: sub.id,
@@ -116,17 +118,17 @@ router.get('/:id', requireTeacher, (req: Request, res: Response) => {
 });
 
 // POST /api/submissions/:id/finalize (teacher)
-router.post('/:id/finalize', requireTeacher, (req: Request, res: Response) => {
+router.post('/:id/finalize', requireTeacher, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const { answers } = req.body;
 
-    const sub = db.prepare('SELECT * FROM submissions WHERE id = ?').get(id) as any;
+    const sub = await getOne('SELECT * FROM submissions WHERE id = $1', [id]);
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
     if (sub.status === 'MARKED') return res.status(409).json({ error: 'Submission already marked' });
 
     for (const ans of answers) {
-      const q = db.prepare('SELECT points, type FROM questions WHERE id = ?').get(ans.questionId) as any;
+      const q = await getOne('SELECT points, type FROM questions WHERE id = $1', [ans.questionId]);
       if (!q) return res.status(422).json({ error: `Question ${ans.questionId} not found` });
       if (q.type === 'mcq') continue;
       if (typeof ans.awardedPoints !== 'number' || ans.awardedPoints < 0 || ans.awardedPoints > q.points) {
@@ -134,20 +136,23 @@ router.post('/:id/finalize', requireTeacher, (req: Request, res: Response) => {
       }
     }
 
-    const txn = db.transaction(() => {
+    await transaction(async (client) => {
       for (const ans of answers) {
-        const q = db.prepare('SELECT type FROM questions WHERE id = ?').get(ans.questionId) as any;
-        if (q.type === 'mcq') continue;
-        db.prepare('UPDATE answers SET awarded_points = ?, feedback = ? WHERE submission_id = ? AND question_id = ?')
-          .run(ans.awardedPoints, ans.feedback || '', id, ans.questionId);
+        const q = await client.query('SELECT type FROM questions WHERE id = $1', [ans.questionId]);
+        if (q.rows[0].type === 'mcq') continue;
+        await client.query(
+          'UPDATE answers SET awarded_points = $1, feedback = $2 WHERE submission_id = $3 AND question_id = $4',
+          [ans.awardedPoints, ans.feedback || '', id, ans.questionId]
+        );
       }
-      const total = (db.prepare('SELECT COALESCE(SUM(awarded_points), 0) as t FROM answers WHERE submission_id = ?').get(id) as any).t;
-      db.prepare("UPDATE submissions SET status = 'MARKED', score = ? WHERE id = ?").run(total, id);
+      await client.query(
+        "UPDATE submissions SET status = 'MARKED', score = (SELECT COALESCE(SUM(awarded_points), 0) FROM answers WHERE submission_id = $1) WHERE id = $1",
+        [id]
+      );
     });
-    txn();
 
-    const total = (db.prepare('SELECT COALESCE(SUM(awarded_points), 0) as t FROM answers WHERE submission_id = ?').get(id) as any).t;
-    return res.json({ score: total, status: 'MARKED' });
+    const total = await getOne('SELECT COALESCE(SUM(awarded_points), 0) as t FROM answers WHERE submission_id = $1', [id]);
+    return res.json({ score: parseInt(total?.t || '0'), status: 'MARKED' });
   } catch (err: any) {
     console.error('Finalize error:', err);
     return res.status(500).json({ error: 'Failed to finalize marking' });
@@ -155,22 +160,23 @@ router.post('/:id/finalize', requireTeacher, (req: Request, res: Response) => {
 });
 
 // POST /api/submissions/:id/reset (teacher)
-router.post('/:id/reset', requireTeacher, (req: Request, res: Response) => {
+router.post('/:id/reset', requireTeacher, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const sub = db.prepare('SELECT * FROM submissions WHERE id = ?').get(id) as any;
+    const { id } = req.params as { id: string };
+    const sub = await getOne('SELECT * FROM submissions WHERE id = $1', [id]);
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
 
-    const txn = db.transaction(() => {
-      db.prepare('DELETE FROM answers WHERE submission_id = ?').run(id);
-      db.prepare("UPDATE submissions SET status = 'STARTED', submitted_at = null, score = null WHERE id = ?").run(id);
-      const questions = db.prepare('SELECT id FROM questions WHERE exam_id = ? ORDER BY position').all(sub.exam_id) as any[];
-      const insertA = db.prepare('INSERT INTO answers (id, submission_id, question_id, answer_text) VALUES (?,?,?,?)');
-      for (const q of questions) {
-        insertA.run(uuidv4(), id, q.id, '');
+    await transaction(async (client) => {
+      await client.query('DELETE FROM answers WHERE submission_id = $1', [id]);
+      await client.query("UPDATE submissions SET status = 'STARTED', submitted_at = null, score = null WHERE id = $1", [id]);
+      const questions = await client.query('SELECT id FROM questions WHERE exam_id = $1 ORDER BY position', [sub.exam_id]);
+      for (const q of questions.rows) {
+        await client.query(
+          'INSERT INTO answers (id, submission_id, question_id, answer_text) VALUES ($1,$2,$3,$4)',
+          [uuidv4(), id, q.id, '']
+        );
       }
     });
-    txn();
     return res.json({ reset: true });
   } catch (err: any) {
     console.error('Reset error:', err);
@@ -179,12 +185,12 @@ router.post('/:id/reset', requireTeacher, (req: Request, res: Response) => {
 });
 
 // DELETE /api/submissions/:id/session (teacher)
-router.delete('/:id/session', requireTeacher, (req: Request, res: Response) => {
+router.delete('/:id/session', requireTeacher, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const sub = db.prepare('SELECT student_id FROM submissions WHERE id = ?').get(id) as any;
+    const { id } = req.params as { id: string };
+    const sub = await getOne('SELECT student_id FROM submissions WHERE id = $1', [id]);
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
-    db.prepare('UPDATE students SET session_token = null WHERE id = ?').run(sub.student_id);
+    await run('UPDATE students SET session_token = null WHERE id = $1', [sub.student_id]);
     return res.json({ cleared: true });
   } catch (err: any) {
     console.error('Clear session error:', err);
@@ -195,42 +201,46 @@ router.delete('/:id/session', requireTeacher, (req: Request, res: Response) => {
 // ─── STUDENT ROUTES ───────────────────────────────────────
 
 // POST /api/submissions/start (student)
-router.post('/start', requireStudent, (req: Request, res: Response) => {
+router.post('/start', requireStudent, async (req: Request, res: Response) => {
   try {
     const { examId } = req.body;
     const studentId = req.studentId!;
 
     if (!examId) return res.status(422).json({ error: 'examId is required' });
 
-    const examRow = db.prepare('SELECT * FROM exams WHERE id = ?').get(examId) as any;
+    const examRow = await getOne('SELECT * FROM exams WHERE id = $1', [examId]);
     if (!examRow) return res.status(404).json({ error: 'Exam not found' });
 
-    const existing = db.prepare('SELECT * FROM submissions WHERE exam_id = ? AND student_id = ?').get(examId, studentId) as any;
+    const existing = await getOne('SELECT * FROM submissions WHERE exam_id = $1 AND student_id = $2', [examId, studentId]);
     if (existing) {
       if (existing.status === 'SUBMITTED' || existing.status === 'MARKED') {
         return res.status(409).json({ error: 'Already submitted' });
       }
-      const answers = db.prepare(`
+      const answers = await getAll(`
         SELECT a.question_id as "questionId", a.answer_text as "answerText"
         FROM answers a JOIN questions q ON q.id = a.question_id
-        WHERE a.submission_id = ? ORDER BY q.position
-      `).all(existing.id) as any[];
+        WHERE a.submission_id = $1 ORDER BY q.position
+      `, [existing.id]);
       // Reset the timer on resume so stale started_at doesn't trigger auto-submit
-      db.prepare("UPDATE submissions SET started_at = datetime('now') WHERE id = ?").run(existing.id);
+      await run('UPDATE submissions SET started_at = NOW() WHERE id = $1', [existing.id]);
       return res.json({ submissionId: existing.id, startedAt: new Date().toISOString(), answers });
     }
 
     const submissionId = uuidv4();
-    const txn = db.transaction(() => {
-      db.prepare("INSERT INTO submissions (id, exam_id, student_id, status) VALUES (?,?,?,'STARTED')").run(submissionId, examId, studentId);
-      const questions = db.prepare('SELECT id FROM questions WHERE exam_id = ? ORDER BY position').all(examId) as any[];
-      const insertA = db.prepare('INSERT INTO answers (id, submission_id, question_id, answer_text) VALUES (?,?,?,?)');
-      for (const q of questions) {
-        insertA.run(uuidv4(), submissionId, q.id, '');
+    await transaction(async (client) => {
+      await client.query(
+        "INSERT INTO submissions (id, exam_id, student_id, status) VALUES ($1,$2,$3,'STARTED')",
+        [submissionId, examId, studentId]
+      );
+      const questions = await client.query('SELECT id FROM questions WHERE exam_id = $1 ORDER BY position', [examId]);
+      for (const q of questions.rows) {
+        await client.query(
+          'INSERT INTO answers (id, submission_id, question_id, answer_text) VALUES ($1,$2,$3,$4)',
+          [uuidv4(), submissionId, q.id, '']
+        );
       }
-      db.prepare('UPDATE exams SET locked = 1 WHERE id = ?').run(examId);
+      await client.query('UPDATE exams SET locked = 1 WHERE id = $1', [examId]);
     });
-    txn();
 
     return res.status(201).json({ submissionId, startedAt: new Date().toISOString(), answers: [] });
   } catch (err: any) {
@@ -240,27 +250,24 @@ router.post('/start', requireStudent, (req: Request, res: Response) => {
 });
 
 // PUT /api/submissions/:id/answers (student)
-router.put('/:id/answers', requireStudent, (req: Request, res: Response) => {
+router.put('/:id/answers', requireStudent, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const { answers } = req.body;
     const studentId = req.studentId!;
 
-    const sub = db.prepare('SELECT * FROM submissions WHERE id = ? AND student_id = ?').get(id, studentId) as any;
+    const sub = await getOne('SELECT * FROM submissions WHERE id = $1 AND student_id = $2', [id, studentId]);
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
     if (sub.status !== 'STARTED') return res.status(409).json({ error: 'Submission is not in progress' });
 
-    const upsert = db.prepare(`
-      INSERT INTO answers (id, submission_id, question_id, answer_text) VALUES (?,?,?,?)
-      ON CONFLICT(submission_id, question_id) DO UPDATE SET answer_text = excluded.answer_text
-    `);
-
-    const txn = db.transaction(() => {
+    await transaction(async (client) => {
       for (const ans of answers) {
-        upsert.run(uuidv4(), id, ans.questionId, ans.answerText);
+        await client.query(`
+          INSERT INTO answers (id, submission_id, question_id, answer_text) VALUES ($1,$2,$3,$4)
+          ON CONFLICT(submission_id, question_id) DO UPDATE SET answer_text = EXCLUDED.answer_text
+        `, [uuidv4(), id, ans.questionId, ans.answerText]);
       }
     });
-    txn();
 
     return res.json({ saved: true });
   } catch (err: any) {
@@ -270,26 +277,26 @@ router.put('/:id/answers', requireStudent, (req: Request, res: Response) => {
 });
 
 // POST /api/submissions/:id/submit (student)
-router.post('/:id/submit', requireStudent, (req: Request, res: Response) => {
+router.post('/:id/submit', requireStudent, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const studentId = req.studentId!;
 
-    const sub = db.prepare('SELECT * FROM submissions WHERE id = ? AND student_id = ?').get(id, studentId) as any;
+    const sub = await getOne('SELECT * FROM submissions WHERE id = $1 AND student_id = $2', [id, studentId]);
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
     if (sub.status !== 'STARTED') return res.status(409).json({ error: 'Already submitted' });
 
-    db.transaction(() => {
-      db.prepare(`
+    await transaction(async (client) => {
+      await client.query(`
         UPDATE answers SET awarded_points = CASE WHEN answers.answer_text = q.correct THEN q.points ELSE 0 END
         FROM questions q
-        WHERE answers.question_id = q.id AND answers.submission_id = ? AND q.type = 'mcq'
-      `).run(id);
+        WHERE answers.question_id = q.id AND answers.submission_id = $1 AND q.type = 'mcq'
+      `, [id]);
 
-      db.prepare("UPDATE submissions SET status = 'SUBMITTED', submitted_at = datetime('now') WHERE id = ?").run(id);
-    })();
+      await client.query("UPDATE submissions SET status = 'SUBMITTED', submitted_at = NOW() WHERE id = $1", [id]);
+    });
 
-    const updated = db.prepare('SELECT submitted_at FROM submissions WHERE id = ?').get(id) as any;
+    const updated = await getOne('SELECT submitted_at FROM submissions WHERE id = $1', [id]);
     return res.json({ submittedAt: updated.submitted_at });
   } catch (err: any) {
     console.error('Submit error:', err);
@@ -298,16 +305,16 @@ router.post('/:id/submit', requireStudent, (req: Request, res: Response) => {
 });
 
 // GET /api/submissions/:id/result (student)
-router.get('/:id/result', requireStudent, (req: Request, res: Response) => {
+router.get('/:id/result', requireStudent, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const studentId = req.studentId!;
 
-    const sub = db.prepare(`
+    const sub = await getOne(`
       SELECT s.*, e.title as exam_title, e.published as exam_published
       FROM submissions s JOIN exams e ON e.id = s.exam_id
-      WHERE s.id = ? AND s.student_id = ?
-    `).get(id, studentId) as any;
+      WHERE s.id = $1 AND s.student_id = $2
+    `, [id, studentId]);
 
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
 
@@ -323,15 +330,15 @@ router.get('/:id/result', requireStudent, (req: Request, res: Response) => {
       });
     }
 
-    const answers = db.prepare(`
+    const answers = await getAll(`
       SELECT a.question_id as "questionId", q.text as "questionText", q.type as "questionType",
              q.points as "maxPoints", q.correct, a.answer_text as "answerText",
              a.awarded_points as "awardedPoints", a.feedback
       FROM answers a JOIN questions q ON q.id = a.question_id
-      WHERE a.submission_id = ? ORDER BY q.position
-    `).all(id) as any[];
+      WHERE a.submission_id = $1 ORDER BY q.position
+    `, [id]);
 
-    const safeAnswers = answers.map((a) => {
+    const safeAnswers = answers.map((a: any) => {
       const safe: any = {
         questionId: a.questionId, questionText: a.questionText, questionType: a.questionType,
         maxPoints: a.maxPoints, answerText: a.answerText, awardedPoints: a.awardedPoints, feedback: a.feedback,
