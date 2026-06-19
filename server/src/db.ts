@@ -22,13 +22,16 @@ async function getBackend(): Promise<DbClient> {
   if (pgUrl && pgUrl.startsWith('postgres')) {
     try {
       const { Pool } = await import('pg');
-      console.log('[db] Trying PostgreSQL backend:', pgUrl.replace(/\/\/.*@/, '//***@'));
+      // Force port 6543 (connection pooler) and IPv4 — Render cannot reach Supabase IPv6
+      let fixedUrl = pgUrl.replace(/:5432\b/, ':6543');
       const pool = new Pool({
-        connectionString: pgUrl,
+        connectionString: fixedUrl,
         max: 10,
         idleTimeoutMillis: 30000,
         ssl: { rejectUnauthorized: false },
-      });
+        family: 4, // Force IPv4
+      } as any);
+      console.log('[db] Trying PostgreSQL backend:', fixedUrl.replace(/\/\/.*@/, '//***@'));
       // Quick connectivity test
       await pool.query('SELECT 1');
       console.log('[db] PostgreSQL connected');
