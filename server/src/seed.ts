@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getOne, transaction } from './db';
+import { getOne, transaction, run } from './db';
 
 export async function seed() {
   const examCountRow = await getOne('SELECT COUNT(*) as c FROM exams');
@@ -32,16 +32,22 @@ export async function seed() {
 
   // ── Seed Khusela Assessment (always seed if not already present) ──
   const khuselaId = 'khusela-assessment-2026';
-  const existingKhusela = await getOne('SELECT id FROM exams WHERE id = $1', [khuselaId]);
+  const existingKhusela = await getOne('SELECT * FROM exams WHERE id = $1', [khuselaId]);
   if (existingKhusela) {
-    console.log('Khusela Assessment already seeded — skipping');
+    // Re-seed if duration has changed (update from 60→90)
+    if (existingKhusela.duration === 60) {
+      await run('UPDATE exams SET duration = 90 WHERE id = $1', [khuselaId]);
+      console.log('Khusela Assessment duration updated to 90 min');
+    } else {
+      console.log('Khusela Assessment already seeded — skipping');
+    }
     return;
   }
 
   await transaction(async (client) => {
     await client.query(
       'INSERT INTO exams (id, title, description, duration, start_time, published) VALUES ($1,$2,$3,$4,$5,$6)',
-      [khuselaId, 'Khusela Assessment Questionnaire 2026', 'Please answer all questions below in full. This assessment covers workplace conduct, debt management, sales and customer service. GOOD LUCK!!!', 60, null, 1]
+      [khuselaId, 'Khusela Assessment Questionnaire 2026', 'Please answer all questions below in full. This assessment covers workplace conduct, debt management, sales and customer service. GOOD LUCK!!!', 90, null, 1]
     );
 
     const questions: { position: number; type: string; text: string; points: number }[] = [
