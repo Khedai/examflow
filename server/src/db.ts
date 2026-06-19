@@ -22,16 +22,16 @@ async function getBackend(): Promise<DbClient> {
   if (pgUrl && pgUrl.startsWith('postgres')) {
     try {
       const { Pool } = await import('pg');
-      // Force port 6543 (connection pooler) and IPv4 — Render cannot reach Supabase IPv6
-      let fixedUrl = pgUrl.replace(/:5432\b/, ':6543');
+      // Force IPv4 — Render cannot reach Supabase IPv6
+      // Don't rewrite port for pooler URLs (they use different ports)
       const pool = new Pool({
-        connectionString: fixedUrl,
+        connectionString: pgUrl,
         max: 10,
         idleTimeoutMillis: 30000,
         ssl: { rejectUnauthorized: false },
         family: 4, // Force IPv4
       } as any);
-      console.log('[db] Trying PostgreSQL backend:', fixedUrl.replace(/\/\/.*@/, '//***@'));
+      console.log('[db] Trying PostgreSQL backend:', pgUrl.replace(/\/\/.*@/, '//***@'));
       // Quick connectivity test
       await pool.query('SELECT 1');
       console.log('[db] PostgreSQL connected');
@@ -264,9 +264,9 @@ export async function initSchema() {
     return;
   }
 
-  // PostgreSQL schema
-  await b.query(`
-    CREATE TABLE IF NOT EXISTS exams (
+  // PostgreSQL schema — run each statement individually (PgBouncer compatible)
+  const pgStatements = [
+    `CREATE TABLE IF NOT EXISTS exams (
       id            TEXT PRIMARY KEY,
       title         TEXT NOT NULL,
       description   TEXT DEFAULT '',
@@ -277,9 +277,8 @@ export async function initSchema() {
       exceptions    TEXT NOT NULL DEFAULT '[]',
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS questions (
+    )`,
+    `CREATE TABLE IF NOT EXISTS questions (
       id            TEXT PRIMARY KEY,
       exam_id       TEXT NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
       position      INTEGER NOT NULL,
@@ -289,9 +288,8 @@ export async function initSchema() {
       correct       TEXT,
       points        INTEGER NOT NULL DEFAULT 5 CHECK (points > 0),
       UNIQUE (exam_id, position)
-    );
-
-    CREATE TABLE IF NOT EXISTS students (
+    )`,
+    `CREATE TABLE IF NOT EXISTS students (
       id            TEXT PRIMARY KEY,
       student_id    TEXT NOT NULL UNIQUE,
       name          TEXT NOT NULL,
@@ -299,9 +297,8 @@ export async function initSchema() {
       cell          TEXT DEFAULT '',
       session_token TEXT,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS submissions (
+    )`,
+    `CREATE TABLE IF NOT EXISTS submissions (
       id            TEXT PRIMARY KEY,
       exam_id       TEXT NOT NULL REFERENCES exams(id),
       student_id    TEXT NOT NULL REFERENCES students(id),
@@ -311,9 +308,8 @@ export async function initSchema() {
       score         INTEGER,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (exam_id, student_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS answers (
+    )`,
+    `CREATE TABLE IF NOT EXISTS answers (
       id              TEXT PRIMARY KEY,
       submission_id   TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
       question_id     TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
@@ -321,13 +317,15 @@ export async function initSchema() {
       awarded_points  INTEGER,
       feedback        TEXT DEFAULT '',
       UNIQUE (submission_id, question_id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_questions_exam ON questions(exam_id);
-    CREATE INDEX IF NOT EXISTS idx_submissions_exam ON submissions(exam_id);
-    CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id);
-    CREATE INDEX IF NOT EXISTS idx_answers_submission ON answers(submission_id);
-  `);
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_questions_exam ON questions(exam_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_submissions_exam ON submissions(exam_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_answers_submission ON answers(submission_id)`,
+  ];
+  for (const stmt of pgStatements) {
+    await b.query(stmt);
+  }
   console.log('[db] Schema initialised (PostgreSQL)');
 }
 
