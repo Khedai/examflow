@@ -12,7 +12,7 @@ export default function ExamEditor() {
   const isEdit = !!id;
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
-  const [duration, setDuration] = useState(30);
+  const [duration, setDuration] = useState(90);
   const [startTime, setStartTime] = useState('');
   const [questions, setQuestions] = useState<EditableQuestion[]>([]);
   const [expandedQ, setExpandedQ] = useState<number | null>(0);
