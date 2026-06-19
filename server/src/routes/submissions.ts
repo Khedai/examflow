@@ -221,9 +221,8 @@ router.post('/start', requireStudent, async (req: Request, res: Response) => {
         FROM answers a JOIN questions q ON q.id = a.question_id
         WHERE a.submission_id = $1 ORDER BY q.position
       `, [existing.id]);
-      // Reset the timer on resume so stale started_at doesn't trigger auto-submit
-      await run('UPDATE submissions SET started_at = NOW() WHERE id = $1', [existing.id]);
-      return res.json({ submissionId: existing.id, startedAt: new Date().toISOString(), answers });
+      // Return original startedAt — do NOT reset the timer on reload
+      return res.json({ submissionId: existing.id, startedAt: existing.started_at, answers });
     }
 
     const submissionId = uuidv4();
