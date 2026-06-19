@@ -33,7 +33,9 @@ export default function ExamTaking() {
         const ansMap: Record<string, string> = {};
         (startData.answers || []).forEach((a: any) => { ansMap[a.questionId] = a.answerText || ''; });
         setAnswers(ansMap);
-        const startTime = new Date(startData.startedAt).getTime();
+        // Parse as UTC — append Z if missing (fixes SQLite timezone issue)
+        const startedAtStr = startData.startedAt.endsWith('Z') ? startData.startedAt : startData.startedAt + 'Z';
+        const startTime = new Date(startedAtStr).getTime();
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
         const total = examData.duration * 60;
         setTimeLeft(Math.max(0, total - elapsed));

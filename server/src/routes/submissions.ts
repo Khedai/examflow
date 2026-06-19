@@ -184,6 +184,20 @@ router.post('/:id/reset', requireTeacher, async (req: Request, res: Response) =>
   }
 });
 
+// DELETE /api/submissions/:id (teacher — fully delete a submission)
+router.delete('/:id', requireTeacher, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params as { id: string };
+    const sub = await getOne('SELECT id FROM submissions WHERE id = $1', [id]);
+    if (!sub) return res.status(404).json({ error: 'Submission not found' });
+    await run('DELETE FROM submissions WHERE id = $1', [id]);
+    return res.json({ deleted: true });
+  } catch (err: any) {
+    console.error('Delete submission error:', err);
+    return res.status(500).json({ error: 'Failed to delete submission' });
+  }
+});
+
 // DELETE /api/submissions/:id/session (teacher)
 router.delete('/:id/session', requireTeacher, async (req: Request, res: Response) => {
   try {

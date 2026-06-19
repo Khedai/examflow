@@ -83,7 +83,7 @@ async function initSqlite(): Promise<DbClient> {
   function toSqlite(sql: string): string {
     return sql
       .replace(/\$\d+/g, '?')
-      .replace(/\bNOW\(\)/gi, "datetime('now')")
+      .replace(/\bNOW\(\)/gi, "strftime('%Y-%m-%dT%H:%M:%fZ','now')")
       .replace(/\bILIKE\b/gi, 'LIKE')
       .replace(/\bTIMESTAMPTZ\b/gi, 'TEXT')
       .replace(/\bSERIAL\b/gi, 'INTEGER');
@@ -203,8 +203,8 @@ export async function initSchema() {
         published     INTEGER NOT NULL DEFAULT 0,
         locked        INTEGER NOT NULL DEFAULT 0,
         exceptions    TEXT NOT NULL DEFAULT '[]',
-        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
       );
 
       CREATE TABLE IF NOT EXISTS questions (
@@ -226,7 +226,7 @@ export async function initSchema() {
         surname       TEXT NOT NULL,
         cell          TEXT DEFAULT '',
         session_token TEXT,
-        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
       );
 
       CREATE TABLE IF NOT EXISTS submissions (
@@ -234,10 +234,10 @@ export async function initSchema() {
         exam_id       TEXT NOT NULL REFERENCES exams(id),
         student_id    TEXT NOT NULL REFERENCES students(id),
         status        TEXT NOT NULL DEFAULT 'STARTED' CHECK (status IN ('STARTED', 'SUBMITTED', 'MARKED')),
-        started_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        started_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         submitted_at  TEXT,
         score         INTEGER,
-        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         UNIQUE (exam_id, student_id)
       );
 
