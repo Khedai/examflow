@@ -37,9 +37,6 @@ export default function TeacherLogin() {
         </div>
         <h2>Teacher Sign In</h2>
         <p className="login-subtitle">Enter the shared teacher password to continue.</p>
-        <p className="text-sm text-hint mb-2" style={{ background: 'var(--amber-50)', padding: '6px 12px', borderRadius: 'var(--radius-sm)' }}>
-          Default password: <strong>admin123</strong>
-        </p>
         {error && <div className="error-banner">{error}</div>}
         <form onSubmit={handleSubmit}>
           <div className="form-group">
