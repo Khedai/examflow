@@ -12,6 +12,7 @@ interface DbClient {
 
 let _backend: DbClient | null = null;
 let _sqliteDb: any = null;  // raw better-sqlite3 handle for schema exec
+let _pgPool: any = null;    // reference for graceful shutdown
 
 async function getBackend(): Promise<DbClient> {
   if (_backend) return _backend;
@@ -31,6 +32,7 @@ async function getBackend(): Promise<DbClient> {
         ssl: { rejectUnauthorized: false },
         family: 4, // Force IPv4
       } as any);
+      _pgPool = pool;
       console.log('[db] Trying PostgreSQL backend:', pgUrl.replace(/\/\/.*@/, '//***@'));
       // Quick connectivity test
       await pool.query('SELECT 1');
@@ -330,3 +332,42 @@ export async function initSchema() {
 }
 
 export default getBackend;
+
+// ── Graceful shutdown ──
+
+export async function shutdown() {
+  console.log('[db] Shutting down...');
+  if (_pgPool) {
+    try { await _pgPool.end(); console.log('[db] PostgreSQL pool closed'); } catch (e: any) { console.error('[db] Error closing PG pool:', e.message); }
+  }
+  if (_sqliteDb) {
+    try { _sqliteDb.close(); console.log('[db] SQLite closed'); } catch (e: any) { console.error('[db] Error closing SQLite:', e.message); }
+  }
+}
+
+// ── Session cleanup: clear student tokens that haven't been used in 48 hours ──
+
+export async function cleanupStaleSessions() {
+  const b = await getBackend();
+  try {
+    // Consider sessions stale if the student has no active (STARTED) submissions
+    // and their last submission was more than 48 hours ago
+    const result = await b.query(
+      `UPDATE students SET session_token = NULL
+       WHERE session_token IS NOT NULL
+       AND id NOT IN (
+         SELECT DISTINCT student_id FROM submissions WHERE status = 'STARTED'
+       )
+       AND id NOT IN (
+         SELECT DISTINCT student_id FROM submissions
+         WHERE created_at > $1
+       )`,
+      [new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()]
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      console.log(`[db] Cleaned ${result.rowCount} stale student sessions`);
+    }
+  } catch (e: any) {
+    console.error('[db] Session cleanup error:', e.message);
+  }
+}

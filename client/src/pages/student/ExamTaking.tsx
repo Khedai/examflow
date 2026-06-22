@@ -19,6 +19,7 @@ export default function ExamTaking() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const answersRef = useRef(answers);
+  const submittedRef = useRef(false);
   answersRef.current = answers;
 
   useEffect(() => {
@@ -71,9 +72,13 @@ export default function ExamTaking() {
   }, [submissionId, timeLeft]);
 
   const handleSubmitExam = useCallback(async (isAuto = false) => {
-    if (!submissionId) return;
+    if (!submissionId || submittedRef.current) return;
+    submittedRef.current = true;
+    // Stop auto-save and timer
+    if (saveTimerRef.current) { clearInterval(saveTimerRef.current); saveTimerRef.current = null; }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     try { await submitExam(submissionId); navigate(`/student/result/${submissionId}`); }
-    catch (err: any) { if (!isAuto) setError(err.message || 'Failed to submit'); }
+    catch (err: any) { submittedRef.current = false; if (!isAuto) setError(err.message || 'Failed to submit'); }
   }, [submissionId, navigate]);
 
   if (loading) return <div className="loading-center"><span className="spinner" /></div>;

@@ -140,6 +140,10 @@ router.put('/:id', requireTeacher, async (req: Request, res: Response) => {
     if (!existing) return res.status(404).json({ error: 'Exam not found' });
     if (existing.locked) return res.status(409).json({ error: 'Cannot edit a locked exam' });
 
+    // Prevent editing if submissions exist (editing deletes+recreates questions, cascading to answers)
+    const subCountRow = await getOne('SELECT COUNT(*) as c FROM submissions WHERE exam_id = $1', [examId]);
+    if (parseInt(subCountRow?.c || '0') > 0) return res.status(409).json({ error: 'Cannot edit an exam with existing submissions' });
+
     const { title, description, duration, startTime, questions } = req.body;
     if (!title || typeof title !== 'string' || title.trim().length === 0) return res.status(422).json({ error: 'Title is required' });
     if (!duration || typeof duration !== 'number' || duration <= 0) return res.status(422).json({ error: 'Duration must be a positive number' });
@@ -202,6 +206,15 @@ router.patch('/:id/publish', requireTeacher, async (req: Request, res: Response)
     const examId = req.params.id;
     const row = await getOne('SELECT published FROM exams WHERE id = $1', [examId]);
     if (!row) return res.status(404).json({ error: 'Exam not found' });
+
+    // Prevent unpublishing if students have already seen marked results
+    if (row.published) {
+      const markedSubs = await getOne("SELECT COUNT(*) as c FROM submissions WHERE exam_id = $1 AND status = 'MARKED'", [examId]);
+      if (parseInt(markedSubs?.c || '0') > 0) {
+        return res.status(409).json({ error: 'Cannot unpublish an exam with marked results' });
+      }
+    }
+
     const newVal = row.published ? 0 : 1;
     await run('UPDATE exams SET published = $1 WHERE id = $2', [newVal, examId]);
     return res.json({ published: !!newVal });

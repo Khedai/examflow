@@ -11,9 +11,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: JWT_SECRET
-        value: examflow_super_secret_jwt_key_2024_change_me
+        sync: false
       - key: TEACHER_PASSWORD
-        value: admin123
+        sync: false
       - key: CORS_ORIGIN
         value: https://examflow.vercel.app
       - key: DATABASE_URL

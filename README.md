@@ -20,22 +20,16 @@ A full-stack web-based exam/assessment platform.
 ### Setup
 
 ```bash
-# 1. Create database
-createdb examflow
-
-# 2. Apply schema
-psql examflow -f server/src/schema.sql
-
-# 3. Configure environment
+# 1. Configure environment
 cp .env.example .env
 # Edit .env with your DATABASE_URL and secrets
 
-# 4. Start server
+# 2. Start server (auto-creates DB schema)
 cd server
 npm install
 npm run dev           # runs on :4000
 
-# 5. Start client (separate terminal)
+# 3. Start client (separate terminal)
 cd client
 npm install
 npm run dev           # runs on :5173, proxies /api to :4000

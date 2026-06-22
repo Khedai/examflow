@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider } from './context/AppContext';
+import ErrorBoundary from './components/ErrorBoundary';
 
 import Landing from './pages/Landing';
 import TeacherLogin from './pages/teacher/TeacherLogin';
@@ -29,15 +30,16 @@ function StudentRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppProvider>
-        <BrowserRouter
-          future={{
-            v7_relativeSplatPath: true,
-            v7_startTransition: true,
-          }}
-        >
-          <Routes>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppProvider>
+          <BrowserRouter
+            future={{
+              v7_relativeSplatPath: true,
+              v7_startTransition: true,
+            }}
+          >
+            <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/teacher/login" element={<TeacherLogin />} />
             <Route
@@ -120,9 +122,10 @@ export default function App() {
                 </StudentRoute>
               }
             />
-          </Routes>
-        </BrowserRouter>
-      </AppProvider>
-    </AuthProvider>
+            </Routes>
+          </BrowserRouter>
+        </AppProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

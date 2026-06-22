@@ -74,6 +74,90 @@ router.get('/', optionalTeacher, async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/submissions/export (teacher — export all submissions as JSON)
+router.get('/export', requireTeacher, async (_req: Request, res: Response) => {
+  try {
+    const rows = await getAll(`
+      SELECT
+        s.id as submission_id,
+        s.status,
+        s.started_at,
+        s.submitted_at,
+        s.score,
+        s.created_at,
+        st.student_id as student_number,
+        st.name as student_name,
+        st.surname as student_surname,
+        st.cell as student_cell,
+        e.id as exam_id,
+        e.title as exam_title,
+        e.duration as exam_duration
+      FROM submissions s
+      JOIN students st ON st.id = s.student_id
+      JOIN exams e ON e.id = s.exam_id
+      ORDER BY s.created_at DESC
+    `);
+
+    // Fetch answers for each submission
+    const result = await Promise.all(rows.map(async (sub: any) => {
+      const answers = await getAll(`
+        SELECT
+          a.question_id,
+          q.text as question_text,
+          q.type as question_type,
+          q.points as max_points,
+          q.correct as correct_answer,
+          a.answer_text,
+          a.awarded_points,
+          a.feedback
+        FROM answers a
+        JOIN questions q ON q.id = a.question_id
+        WHERE a.submission_id = $1
+        ORDER BY q.position
+      `, [sub.submission_id]);
+
+      return {
+        submissionId: sub.submission_id,
+        status: sub.status,
+        startedAt: sub.started_at,
+        submittedAt: sub.submitted_at,
+        score: sub.score,
+        createdAt: sub.created_at,
+        student: {
+          studentNumber: sub.student_number,
+          name: sub.student_name,
+          surname: sub.student_surname,
+          cell: sub.student_cell,
+        },
+        exam: {
+          id: sub.exam_id,
+          title: sub.exam_title,
+          duration: sub.exam_duration,
+        },
+        answers: answers.map((a: any) => ({
+          questionId: a.question_id,
+          questionText: a.question_text,
+          questionType: a.question_type,
+          maxPoints: a.max_points,
+          correctAnswer: a.correct_answer,
+          answerText: a.answer_text,
+          awardedPoints: a.awarded_points,
+          feedback: a.feedback,
+        })),
+      };
+    }));
+
+    return res.json({
+      exportedAt: new Date().toISOString(),
+      totalSubmissions: result.length,
+      submissions: result,
+    });
+  } catch (err: any) {
+    console.error('Export error:', err);
+    return res.status(500).json({ error: 'Failed to export submissions' });
+  }
+});
+
 // GET /api/submissions/:id (teacher detail)
 router.get('/:id', requireTeacher, async (req: Request, res: Response) => {
   try {
@@ -169,6 +253,11 @@ router.post('/:id/reset', requireTeacher, async (req: Request, res: Response) =>
     await transaction(async (client) => {
       await client.query('DELETE FROM answers WHERE submission_id = $1', [id]);
       await client.query("UPDATE submissions SET status = 'STARTED', submitted_at = null, score = null WHERE id = $1", [id]);
+      // Unlock the exam so the student can retake
+      await client.query('UPDATE exams SET locked = 0 WHERE id = $1', [sub.exam_id]);
+      // Clear the student's session so they must re-authenticate
+      await client.query('UPDATE students SET session_token = null WHERE id = $1', [sub.student_id]);
+      // Re-create empty answer rows
       const questions = await client.query('SELECT id FROM questions WHERE exam_id = $1 ORDER BY position', [sub.exam_id]);
       for (const q of questions.rows) {
         await client.query(
@@ -300,10 +389,15 @@ router.post('/:id/submit', requireStudent, async (req: Request, res: Response) =
     if (sub.status !== 'STARTED') return res.status(409).json({ error: 'Already submitted' });
 
     await transaction(async (client) => {
+      // Auto-grade MCQ answers using subquery (compatible with both PG and SQLite)
       await client.query(`
-        UPDATE answers SET awarded_points = CASE WHEN answers.answer_text = q.correct THEN q.points ELSE 0 END
-        FROM questions q
-        WHERE answers.question_id = q.id AND answers.submission_id = $1 AND q.type = 'mcq'
+        UPDATE answers SET awarded_points = (
+          SELECT q.points FROM questions q
+          WHERE q.id = answers.question_id
+          AND q.type = 'mcq'
+          AND q.correct = answers.answer_text
+        )
+        WHERE submission_id = $1
       `, [id]);
 
       await client.query("UPDATE submissions SET status = 'SUBMITTED', submitted_at = NOW() WHERE id = $1", [id]);

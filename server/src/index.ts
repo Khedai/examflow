@@ -31,7 +31,7 @@ import examsRouter from './routes/exams';
 import submissionsRouter from './routes/submissions';
 import studentsRouter from './routes/students';
 import { errorHandler } from './middleware/errorHandler';
-import { initSchema } from './db';
+import { initSchema, shutdown, cleanupStaleSessions } from './db';
 import { seed } from './seed';
 
 async function start() {
@@ -55,7 +55,20 @@ async function start() {
   app.use(errorHandler);
 
   const PORT = Number(process.env.PORT) || 4000;
-  app.listen(PORT, () => console.log(`ExamFlow server running on :${PORT}`));
+  const server = app.listen(PORT, () => console.log(`ExamFlow server running on :${PORT}`));
+
+  // Graceful shutdown
+  const gracefulShutdown = async () => {
+    console.log('[server] Received shutdown signal');
+    server.close();
+    await shutdown();
+    process.exit(0);
+  };
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGINT', gracefulShutdown);
+
+  // Cleanup stale sessions every hour
+  setInterval(() => { cleanupStaleSessions(); }, 60 * 60 * 1000).unref();
 }
 
 start().catch((err) => {
