@@ -10,8 +10,8 @@ export async function seed() {
   if (batchCount === 0) {
     // Create default "Week 1" batch
     defaultBatchId = uuidv4();
-    await run('INSERT INTO batches (id, name) VALUES ($1, $2)', [defaultBatchId, 'Week 1']);
-    console.log('[seed] Created default batch: Week 1');
+    await run('INSERT INTO batches (id, name) VALUES ($1, $2)', [defaultBatchId, 'Week 1: 13 June']);
+    console.log('[seed] Created default batch: Week 1: 13 June');
   } else {
     // Get the first batch as default
     const firstBatch = await getOne('SELECT id FROM batches ORDER BY created_at ASC LIMIT 1');
