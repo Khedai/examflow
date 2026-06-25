@@ -36,10 +36,17 @@ CREATE TABLE IF NOT EXISTS students (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS batches (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS submissions (
   id            TEXT PRIMARY KEY,
   exam_id       TEXT NOT NULL REFERENCES exams(id),
   student_id    TEXT NOT NULL REFERENCES students(id),
+  batch_id      TEXT REFERENCES batches(id),
   status        TEXT NOT NULL DEFAULT 'STARTED' CHECK (status IN ('STARTED', 'SUBMITTED', 'MARKED')),
   started_at    TEXT NOT NULL DEFAULT (datetime('now')),
   submitted_at  TEXT,

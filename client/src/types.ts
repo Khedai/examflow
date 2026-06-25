@@ -41,11 +41,18 @@ export interface Answer {
   feedback: string;
 }
 
+export interface Batch {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface Submission {
   id: string;
   examId: string;
   examTitle?: string;
   student: Student;
+  batch?: { id: string; name: string } | null;
   status: SubmissionStatus;
   startedAt: string;
   submittedAt: string | null;

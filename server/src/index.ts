@@ -29,6 +29,7 @@ console.log('[dotenv] TEACHER_PASSWORD set:', !!process.env.TEACHER_PASSWORD);
 import teacherRouter from './routes/teacher';
 import examsRouter from './routes/exams';
 import submissionsRouter from './routes/submissions';
+import batchesRouter from './routes/batches';
 import studentsRouter from './routes/students';
 import { errorHandler } from './middleware/errorHandler';
 import { initSchema, shutdown, cleanupStaleSessions } from './db';
@@ -45,6 +46,7 @@ async function start() {
   app.use('/api/teacher', teacherRouter);
   app.use('/api/exams', examsRouter);
   app.use('/api/submissions', submissionsRouter);
+  app.use('/api/batches', batchesRouter);
   app.use('/api/students', studentsRouter);
 
   // Seed sample data

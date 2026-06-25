@@ -198,6 +198,25 @@ export async function initSchema() {
 
   // For SQLite, use exec() to handle multi-statement schema
   if (_sqliteDb) {
+    // Check if batches table exists (for existing DBs before this migration)
+    const tableExists = _sqliteDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='batches'").get();
+    if (!tableExists) {
+      console.log('[db] Adding batches table to existing SQLite DB...');
+      _sqliteDb.exec(`CREATE TABLE IF NOT EXISTS batches (
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      )`);
+      // Add batch_id column to submissions if it doesn't exist
+      try {
+        _sqliteDb.exec('ALTER TABLE submissions ADD COLUMN batch_id TEXT REFERENCES batches(id)');
+        console.log('[db] Added batch_id column to submissions');
+      } catch (e: any) {
+        // Column already exists — ignore
+        if (!e.message.includes('duplicate column')) console.warn('[db] ALTER batch_id:', e.message);
+      }
+    }
+
     const schema = `
       CREATE TABLE IF NOT EXISTS exams (
         id            TEXT PRIMARY KEY,
@@ -234,10 +253,17 @@ export async function initSchema() {
         created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
       );
 
+      CREATE TABLE IF NOT EXISTS batches (
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+
       CREATE TABLE IF NOT EXISTS submissions (
         id            TEXT PRIMARY KEY,
         exam_id       TEXT NOT NULL REFERENCES exams(id),
         student_id    TEXT NOT NULL REFERENCES students(id),
+        batch_id      TEXT REFERENCES batches(id),
         status        TEXT NOT NULL DEFAULT 'STARTED' CHECK (status IN ('STARTED', 'SUBMITTED', 'MARKED')),
         started_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         submitted_at  TEXT,
@@ -300,10 +326,16 @@ export async function initSchema() {
       session_token TEXT,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
+    `CREATE TABLE IF NOT EXISTS batches (
+      id            TEXT PRIMARY KEY,
+      name          TEXT NOT NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
     `CREATE TABLE IF NOT EXISTS submissions (
       id            TEXT PRIMARY KEY,
       exam_id       TEXT NOT NULL REFERENCES exams(id),
       student_id    TEXT NOT NULL REFERENCES students(id),
+      batch_id      TEXT REFERENCES batches(id),
       status        TEXT NOT NULL DEFAULT 'STARTED' CHECK (status IN ('STARTED', 'SUBMITTED', 'MARKED')),
       started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       submitted_at  TIMESTAMPTZ,
@@ -329,6 +361,13 @@ export async function initSchema() {
     await b.query(stmt);
   }
   console.log('[db] Schema initialised (PostgreSQL)');
+
+  // Migration: add batch_id to existing submission tables if missing
+  try {
+    await b.query('ALTER TABLE submissions ADD COLUMN IF NOT EXISTS batch_id TEXT REFERENCES batches(id)');
+  } catch (e: any) {
+    if (!e.message?.includes('already exists')) console.warn('[db] PG ALTER batch_id:', e.message);
+  }
 }
 
 export default getBackend;

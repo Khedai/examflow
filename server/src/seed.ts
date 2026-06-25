@@ -1,7 +1,34 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getOne, transaction, run } from './db';
+import { getOne, getAll, transaction, run } from './db';
 
 export async function seed() {
+  // ── Batch migration: ensure a default batch exists and all submissions are assigned ──
+  const batchCountRow = await getOne('SELECT COUNT(*) as c FROM batches');
+  const batchCount = parseInt(batchCountRow?.c || '0');
+  let defaultBatchId: string | null = null;
+
+  if (batchCount === 0) {
+    // Create default "Week 1" batch
+    defaultBatchId = uuidv4();
+    await run('INSERT INTO batches (id, name) VALUES ($1, $2)', [defaultBatchId, 'Week 1']);
+    console.log('[seed] Created default batch: Week 1');
+  } else {
+    // Get the first batch as default
+    const firstBatch = await getOne('SELECT id FROM batches ORDER BY created_at ASC LIMIT 1');
+    defaultBatchId = firstBatch?.id || null;
+  }
+
+  // Assign all unassigned submissions to the default batch
+  if (defaultBatchId) {
+    const unassigned = await run(
+      'UPDATE submissions SET batch_id = $1 WHERE batch_id IS NULL',
+      [defaultBatchId]
+    );
+    if (unassigned.rowCount && unassigned.rowCount > 0) {
+      console.log(`[seed] Assigned ${unassigned.rowCount} existing submissions to default batch`);
+    }
+  }
+
   const examCountRow = await getOne('SELECT COUNT(*) as c FROM exams');
   const examCount = parseInt(examCountRow?.c || '0');
 

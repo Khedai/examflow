@@ -2,6 +2,7 @@ import type {
   Exam,
   Student,
   Submission,
+  Batch,
   CreateExamBody,
   FinalizeMarkingBody,
 } from './types';
@@ -58,6 +59,7 @@ export const getSubmissions = (params?: {
   status?: string;
   examId?: string;
   search?: string;
+  batchId?: string;
 }) => {
   const qs = new URLSearchParams(params as Record<string, string>).toString();
   return request<Submission[]>('GET', `/api/submissions${qs ? '?' + qs : ''}`);
@@ -114,3 +116,14 @@ export const submitExam = (submissionId: string) =>
 
 export const getResult = (submissionId: string) =>
   request<any>('GET', `/api/submissions/${submissionId}/result`);
+
+// Batches
+export const getBatches = () => request<Batch[]>('GET', '/api/batches');
+export const createBatch = (name: string) =>
+  request<Batch>('POST', '/api/batches', { name });
+export const updateBatch = (id: string, name: string) =>
+  request<Batch>('PUT', `/api/batches/${id}`, { name });
+export const deleteBatch = (id: string) =>
+  request<{ deleted: boolean }>('DELETE', `/api/batches/${id}`);
+export const assignBatch = (submissionId: string, batchId: string | null) =>
+  request<{ updated: boolean }>('PATCH', `/api/submissions/${submissionId}/batch`, { batchId });

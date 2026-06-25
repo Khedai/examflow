@@ -23,13 +23,15 @@ router.get('/', optionalTeacher, async (req: Request, res: Response) => {
 
     if (!isTeacher && !studentId) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { status, examId, search } = req.query;
+    const { status, examId, search, batchId } = req.query;
     let sql = `
       SELECT s.*, st.student_id as st_id, st.name as st_name, st.surname as st_surname, st.cell as st_cell,
-             e.title as exam_title
+             e.title as exam_title,
+             b.name as batch_name, b.id as b_id
       FROM submissions s
       JOIN students st ON st.id = s.student_id
       JOIN exams e ON e.id = s.exam_id
+      LEFT JOIN batches b ON b.id = s.batch_id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -48,6 +50,10 @@ router.get('/', optionalTeacher, async (req: Request, res: Response) => {
       sql += ` AND s.exam_id = $${paramIdx++}`;
       params.push(examId);
     }
+    if (batchId && typeof batchId === 'string' && isTeacher) {
+      sql += ` AND s.batch_id = $${paramIdx++}`;
+      params.push(batchId);
+    }
     if (search && typeof search === 'string' && isTeacher) {
       const q = `%${search}%`;
       sql += ` AND (st.name ILIKE $${paramIdx} OR st.surname ILIKE $${paramIdx+1} OR st.student_id ILIKE $${paramIdx+2})`;
@@ -61,6 +67,7 @@ router.get('/', optionalTeacher, async (req: Request, res: Response) => {
       examId: row.exam_id,
       examTitle: row.exam_title,
       student: { id: row.student_id, studentId: row.st_id, name: row.st_name, surname: row.st_surname, cell: row.st_cell || '' },
+      batch: row.b_id ? { id: row.b_id, name: row.batch_name } : null,
       status: row.status,
       startedAt: row.started_at,
       submittedAt: row.submitted_at || null,
@@ -287,6 +294,28 @@ router.delete('/:id', requireTeacher, async (req: Request, res: Response) => {
   }
 });
 
+// PATCH /api/submissions/:id/batch (teacher — reassign to a different batch)
+router.patch('/:id/batch', requireTeacher, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params as { id: string };
+    const { batchId } = req.body;
+
+    const sub = await getOne('SELECT id FROM submissions WHERE id = $1', [id]);
+    if (!sub) return res.status(404).json({ error: 'Submission not found' });
+
+    if (batchId !== null && batchId !== undefined) {
+      const batchExists = await getOne('SELECT id FROM batches WHERE id = $1', [batchId]);
+      if (!batchExists) return res.status(422).json({ error: 'Batch not found' });
+    }
+
+    await run('UPDATE submissions SET batch_id = $1 WHERE id = $2', [batchId || null, id]);
+    return res.json({ updated: true });
+  } catch (err: any) {
+    console.error('Assign batch error:', err);
+    return res.status(500).json({ error: 'Failed to assign batch' });
+  }
+});
+
 // DELETE /api/submissions/:id/session (teacher)
 router.delete('/:id/session', requireTeacher, async (req: Request, res: Response) => {
   try {
@@ -328,11 +357,14 @@ router.post('/start', requireStudent, async (req: Request, res: Response) => {
       return res.json({ submissionId: existing.id, startedAt: existing.started_at, answers });
     }
 
+    // Get the latest batch to auto-assign
+    const latestBatch = await getOne('SELECT id FROM batches ORDER BY created_at DESC LIMIT 1');
+
     const submissionId = uuidv4();
     await transaction(async (client) => {
       await client.query(
-        "INSERT INTO submissions (id, exam_id, student_id, status) VALUES ($1,$2,$3,'STARTED')",
-        [submissionId, examId, studentId]
+        'INSERT INTO submissions (id, exam_id, student_id, batch_id, status) VALUES ($1,$2,$3,$4,$5)',
+        [submissionId, examId, studentId, latestBatch?.id || null, 'STARTED']
       );
       const questions = await client.query('SELECT id FROM questions WHERE exam_id = $1 ORDER BY position', [examId]);
       for (const q of questions.rows) {
