@@ -290,13 +290,24 @@ router.post('/:id/reset', requireTeacher, async (req: Request, res: Response) =>
 router.delete('/:id', requireTeacher, async (req: Request, res: Response) => {
   try {
     const { id } = req.params as { id: string };
-    const sub = await getOne('SELECT id FROM submissions WHERE id = $1', [id]);
+    const sub = await getOne('SELECT id, exam_id FROM submissions WHERE id = $1', [id]);
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
-    await run('DELETE FROM submissions WHERE id = $1', [id]);
+
+    await transaction(async (client) => {
+      await client.query('DELETE FROM submissions WHERE id = $1', [id]);
+      
+      // Only unlock the exam if no other students have submissions
+      const otherSubs = await client.query('SELECT COUNT(*) as c FROM submissions WHERE exam_id = $1', [sub.exam_id]);
+      const otherCount = parseInt(otherSubs.rows[0]?.c || '0');
+      if (otherCount === 0) {
+        await client.query('UPDATE exams SET locked = 0 WHERE id = $1', [sub.exam_id]);
+      }
+    });
+
     return res.json({ deleted: true });
   } catch (err: any) {
     console.error('Delete submission error:', err);
-    return res.status(500).json({ error: 'Failed to delete submission' });
+    return res.status(500).json({ error: 'Failed to delete submission: ' + (err.message || 'Unknown error') });
   }
 });
 
