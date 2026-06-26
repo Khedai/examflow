@@ -259,9 +259,15 @@ router.post('/:id/reset', requireTeacher, async (req: Request, res: Response) =>
 
     await transaction(async (client) => {
       await client.query('DELETE FROM answers WHERE submission_id = $1', [id]);
-      await client.query("UPDATE submissions SET status = 'STARTED', submitted_at = null, score = null WHERE id = $1", [id]);
-      // Unlock the exam so the student can retake
-      await client.query('UPDATE exams SET locked = 0 WHERE id = $1', [sub.exam_id]);
+      await client.query("UPDATE submissions SET status = 'STARTED', started_at = NOW(), submitted_at = null, score = null WHERE id = $1", [id]);
+      
+      // Only unlock the exam if no other students have submissions
+      const otherSubs = await client.query('SELECT COUNT(*) as c FROM submissions WHERE exam_id = $1 AND id != $2', [sub.exam_id, id]);
+      const otherCount = parseInt(otherSubs.rows[0]?.c || '0');
+      if (otherCount === 0) {
+        await client.query('UPDATE exams SET locked = 0 WHERE id = $1', [sub.exam_id]);
+      }
+      
       // Clear the student's session so they must re-authenticate
       await client.query('UPDATE students SET session_token = null WHERE id = $1', [sub.student_id]);
       // Re-create empty answer rows
@@ -275,8 +281,8 @@ router.post('/:id/reset', requireTeacher, async (req: Request, res: Response) =>
     });
     return res.json({ reset: true });
   } catch (err: any) {
-    console.error('Reset error:', err);
-    return res.status(500).json({ error: 'Failed to reset submission' });
+    console.error('Reset error details:', err);
+    return res.status(500).json({ error: 'Failed to reset submission: ' + (err.message || 'Unknown error') });
   }
 });
 
