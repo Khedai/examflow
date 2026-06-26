@@ -27,6 +27,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: getHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   });
+
+  if (res.status === 401) {
+    localStorage.removeItem('student_token');
+    localStorage.removeItem('student_data');
+    localStorage.removeItem('teacher_token');
+    if (!window.location.pathname.endsWith('/login')) {
+      window.location.href = '/login';
+    }
+  }
+
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Request failed');
   return data as T;

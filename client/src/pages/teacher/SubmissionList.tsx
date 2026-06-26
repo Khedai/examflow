@@ -104,8 +104,38 @@ export default function SubmissionList() {
             {filtered.map((sub) => (<div key={sub.id} className="submission-row"><div className="flex-1"><div style={{ fontWeight: 500 }}>{sub.student.name} {sub.student.surname} <span className="text-sm text-secondary">({sub.student.studentId})</span></div><div className="text-sm text-secondary">{sub.examTitle}{sub.batch ? <span style={{ marginLeft: 8, color: 'var(--primary)' }}>• {sub.batch.name}</span> : null}</div></div><span className={`badge ${sub.status === 'SUBMITTED' ? 'badge-submitted' : sub.status === 'MARKED' ? 'badge-marked' : 'badge-started'}`}>{sub.status}</span>{sub.score != null && <span className="text-sm">{sub.score} pts</span>}<button className="btn btn-sm btn-ghost" onClick={() => { setShowBatchDialog(sub.id); setBatchReassign(sub.batch?.id || 'none'); }} disabled={actionLoading === sub.id} title="Change batch">Bt</button><button className="btn btn-sm btn-ghost" onClick={() => setConfirmReset(sub.id)} disabled={actionLoading === sub.id}>Rst</button><button className="btn btn-sm btn-ghost" onClick={() => clearSession(sub.id)} disabled={actionLoading === sub.id}>Clr</button><button className="btn btn-sm btn-primary" onClick={() => navigate(`/teacher/submissions/${sub.id}`)}>{sub.status === 'MARKED' ? 'View' : 'Mark'}</button></div>))}
           </div>
         )}
-        {confirmReset && (<div className="confirm-overlay" onClick={() => setConfirmReset(null)}><div className="confirm-dialog" onClick={(e) => e.stopPropagation()}><h3>Reset Submission</h3><p>Clear all answers and allow retake?</p><div className="confirm-actions"><button className="btn btn-ghost" onClick={() => setConfirmReset(null)}>Cancel</button><button className="btn btn-danger" onClick={() => reset(confirmReset)}>Reset</button></div></div></div>)}
-        {showBatchDialog && (<div className="confirm-overlay" onClick={() => setShowBatchDialog(null)}><div className="confirm-dialog" onClick={(e) => e.stopPropagation()}><h3>Assign Batch</h3><p>Select a batch for this submission:</p><select className="input" style={{ width: '100%', marginBottom: 12 }} value={batchReassign} onChange={(e) => setBatchReassign(e.target.value)}><option value="none">None</option>{batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select><div className="confirm-actions"><button className="btn btn-ghost" onClick={() => setShowBatchDialog(null)}>Cancel</button><button className="btn btn-primary" onClick={handleBatchAssign}>Save</button></div></div></div>)}
+        {confirmReset && (
+          <div className="confirm-overlay" onClick={() => !actionLoading && setConfirmReset(null)}>
+            <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+              <h3>Reset Submission</h3>
+              <p>Clear all answers and allow retake?</p>
+              <div className="confirm-actions">
+                <button className="btn btn-ghost" onClick={() => setConfirmReset(null)} disabled={actionLoading !== null}>Cancel</button>
+                <button className="btn btn-danger" onClick={() => reset(confirmReset)} disabled={actionLoading !== null}>
+                  {actionLoading === confirmReset ? 'Resetting...' : 'Reset'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showBatchDialog && (
+          <div className="confirm-overlay" onClick={() => !actionLoading && setShowBatchDialog(null)}>
+            <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+              <h3>Assign Batch</h3>
+              <p>Select a batch for this submission:</p>
+              <select className="input" style={{ width: '100%', marginBottom: 12 }} value={batchReassign} onChange={(e) => setBatchReassign(e.target.value)} disabled={actionLoading !== null}>
+                <option value="none">None</option>
+                {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <div className="confirm-actions">
+                <button className="btn btn-ghost" onClick={() => setShowBatchDialog(null)} disabled={actionLoading !== null}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleBatchAssign} disabled={actionLoading !== null}>
+                  {actionLoading === showBatchDialog ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
