@@ -28,8 +28,8 @@ export default function TeacherDashboard() {
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <TeacherSidebar extra={stats?.pending > 0 ? <span className="nav-badge">{stats.pending}</span> : null} />
       <main className="main-content">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 60, width: 160, maxWidth: '100%' }} />
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
+          <img src="/logo.png" alt="Logo" style={{ height: 50, width: 140, maxWidth: '100%', objectFit: 'contain' }} />
         </div>
         <div className="page-header"><h1>Dashboard</h1></div>
         {loading && <div className="loading-center"><span className="spinner" /></div>}
@@ -38,31 +38,31 @@ export default function TeacherDashboard() {
           <>
             <div className="dash-stats">
               <div className="grid-4">
-                <div className="stat-card card-flat"><div className="stat-value">{stats.totalExams}</div><div className="stat-label">Total Exams</div></div>
-                <div className="stat-card card-flat"><div className="stat-value">{stats.pending}</div><div className="stat-label">Pending</div></div>
-                <div className="stat-card card-flat"><div className="stat-value">{stats.marked}</div><div className="stat-label">Marked</div></div>
-                <div className="stat-card card-flat"><div className="stat-value">{stats.inProgress}</div><div className="stat-label">In Progress</div></div>
+                <div className="stat-card"><div className="stat-value">{stats.totalExams}</div><div className="stat-label">Total Exams</div></div>
+                <div className="stat-card"><div className="stat-value">{stats.pending}</div><div className="stat-label">Pending Reviews</div></div>
+                <div className="stat-card"><div className="stat-value">{stats.marked}</div><div className="stat-label">Marked Submissions</div></div>
+                <div className="stat-card"><div className="stat-value">{stats.inProgress}</div><div className="stat-label">Exams In Progress</div></div>
               </div>
             </div>
             <div className="grid-2">
               <div className="dash-section">
                 <h2>Recent Exams</h2>
-                <div className="card">
-                  {recentExams.length === 0 ? <div className="empty-state"><p>No exams created yet.</p></div> :
-                    recentExams.map((exam) => (
-                      <div key={exam.id} className="dash-exam-card" style={{ borderBottom: '0.5px solid var(--border-subtle)' }}>
+                <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: 0 }}>
+                  {recentExams.length === 0 ? <div className="empty-state" style={{ border: 'none' }}><p>No exams created yet.</p></div> :
+                    recentExams.map((exam, index) => (
+                      <div key={exam.id} className="dash-exam-card" style={{ border: 'none', borderBottom: index === recentExams.length - 1 ? 'none' : '1px solid var(--border-subtle)', borderRadius: 0, margin: 0 }}>
                         <div className="dash-exam-info"><h3>{exam.title}</h3><div className="dash-exam-meta"><span>{exam.questions.length} questions</span><span>{exam.duration} min</span></div></div>
-                        <button className="btn btn-sm btn-ghost" onClick={() => navigate(`/teacher/exams/${exam.id}`)}>View</button>
+                        <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => navigate(`/teacher/exams/${exam.id}`)}>View</button>
                       </div>
                     ))}
                 </div>
               </div>
               <div className="dash-section">
-                <h2>Pending Submissions</h2>
-                <div className="card">
-                  {pendingSubs.length === 0 ? <div className="empty-state"><p>Nothing to mark right now.</p></div> :
-                    pendingSubs.map((sub) => (
-                      <div key={sub.id} className="dash-exam-card" style={{ borderBottom: '0.5px solid var(--border-subtle)' }}>
+                <h2>Pending Reviews</h2>
+                <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: 0 }}>
+                  {pendingSubs.length === 0 ? <div className="empty-state" style={{ border: 'none' }}><p>Nothing to mark right now.</p></div> :
+                    pendingSubs.map((sub, index) => (
+                      <div key={sub.id} className="dash-exam-card" style={{ border: 'none', borderBottom: index === pendingSubs.length - 1 ? 'none' : '1px solid var(--border-subtle)', borderRadius: 0, margin: 0 }}>
                         <div className="dash-exam-info"><h3>{sub.student.name} {sub.student.surname}</h3><div className="dash-exam-meta"><span>{sub.student.studentId}</span><span className="badge badge-submitted">SUBMITTED</span></div></div>
                         <button className="btn btn-sm btn-primary" onClick={() => navigate(`/teacher/submissions/${sub.id}`)}>Mark</button>
                       </div>

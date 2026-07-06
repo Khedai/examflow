@@ -98,27 +98,27 @@ export default function ExamTaking() {
   return (
     <div className="exam-container">
       <div className="exam-sidebar">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid var(--border)' }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 60, width: 160, maxWidth: '100%' }} />
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
+          <img src="/logo.png" alt="Logo" style={{ height: 50, width: 140, maxWidth: '100%', objectFit: 'contain' }} />
         </div>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>{exam.title}</div>
-        <div className="text-sm text-secondary">{answeredCount}/{questions.length} answered</div>
-        <div className="q-nav">
+        <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 15, color: 'var(--text-primary)' }}>{exam.title}</div>
+        <div className="text-sm text-secondary" style={{ marginBottom: 16 }}>{answeredCount} of {questions.length} answered</div>
+        <div className="q-nav" style={{ marginBottom: 20 }}>
           {questions.map((qu, i) => (
             <button key={qu.id} className={`q-dot ${answers[qu.id]?.trim() ? 'answered' : ''} ${i === currentQ ? 'current' : ''}`} onClick={() => goTo(i)} aria-label={`Question ${i + 1}`}>{i + 1}</button>
           ))}
         </div>
-        <div style={{ marginTop: 'auto' }}>
-          <div className="text-sm text-secondary mb-1">Total: {totalPoints} pts</div>
-          <button className="btn btn-danger" style={{ width: '100%' }} onClick={() => setConfirmSubmit(true)}>Submit exam</button>
+        <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+          <div className="text-sm text-secondary" style={{ marginBottom: 10, fontWeight: 600 }}>Total Points: {totalPoints} pts</div>
+          <button className="btn btn-danger" style={{ width: '100%', padding: '8px 16px', fontSize: 13 }} onClick={() => setConfirmSubmit(true)}>Submit Exam</button>
         </div>
       </div>
       <div className="exam-main">
         <div className="exam-topbar">
           <div className="exam-topbar-title">{exam.title}</div>
           <div className="exam-topbar-info">
-            {saveIndicator === 'saving' && <span className="text-sm text-secondary">Saving...</span>}
-            {saveIndicator === 'saved' && <span className="text-sm" style={{ color: 'var(--teal-600)' }}>Saved</span>}
+            {saveIndicator === 'saving' && <span className="text-sm text-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>⏳ Saving...</span>}
+            {saveIndicator === 'saved' && <span className="text-sm" style={{ color: 'var(--teal-600)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>✓ Saved</span>}
             <span className={`timer-display ${timerClass}`}>{timeLeft !== null ? formatTime(timeLeft) : '--:--'}</span>
           </div>
         </div>
@@ -131,7 +131,7 @@ export default function ExamTaking() {
               <div className="exam-question-number">Question {currentQ + 1} of {questions.length}</div>
               <div className="exam-question-text">{q.text}</div>
               {q.type === 'mcq' && q.options && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
                   {q.options.map((opt, oi) => (
                     <div key={oi} className={`mcq-option ${answers[q.id] === opt ? 'selected' : ''}`} onClick={() => handleAnswerChange(opt)}>
                       <div className="mcq-radio">{answers[q.id] === opt && <div className="mcq-radio-inner" />}</div>
@@ -140,12 +140,12 @@ export default function ExamTaking() {
                   ))}
                 </div>
               )}
-              {q.type === 'short' && (<textarea className="input" rows={4} value={answers[q.id] || ''} onChange={(e) => handleAnswerChange(e.target.value)} placeholder="Type your answer..." style={{ resize: 'vertical' }} />)}
-              {q.type === 'long' && (<textarea className="input" rows={10} value={answers[q.id] || ''} onChange={(e) => handleAnswerChange(e.target.value)} placeholder="Type your answer..." style={{ resize: 'vertical' }} />)}
-              <div style={{ marginTop: 8 }}><span className="badge badge-mcq">{q.points} pts</span></div>
+              {q.type === 'short' && (<textarea className="input" rows={4} value={answers[q.id] || ''} onChange={(e) => handleAnswerChange(e.target.value)} placeholder="Type your answer..." style={{ resize: 'vertical', marginBottom: 16 }} />)}
+              {q.type === 'long' && (<textarea className="input" rows={8} value={answers[q.id] || ''} onChange={(e) => handleAnswerChange(e.target.value)} placeholder="Type your answer..." style={{ resize: 'vertical', marginBottom: 16 }} />)}
+              <div style={{ marginBottom: 16 }}><span className="badge badge-mcq">{q.points} Points</span></div>
               <div className="exam-nav-buttons">
-                <button className="btn btn-ghost" onClick={() => goTo(currentQ - 1)} disabled={currentQ === 0}>&larr; Previous</button>
-                <button className="btn btn-ghost" onClick={() => goTo(currentQ + 1)} disabled={currentQ === questions.length - 1}>Next &rarr;</button>
+                <button className="btn btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => goTo(currentQ - 1)} disabled={currentQ === 0}>&larr; Previous</button>
+                <button className="btn btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => goTo(currentQ + 1)} disabled={currentQ === questions.length - 1}>Next &rarr;</button>
               </div>
             </div>
           ) : null}
