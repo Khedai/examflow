@@ -44,13 +44,17 @@ export default function MarkingView() {
   const setPts = (qid: string, v: number) => setGrades((p) => ({ ...p, [qid]: { ...p[qid], awardedPoints: v } }));
   const setFb = (qid: string, v: string) => setGrades((p) => ({ ...p, [qid]: { ...p[qid], feedback: v } }));
 
-  const finalize = async () => {
-    const hasZero = sub.answers.some((a: any) => a.questionType !== 'mcq' && (grades[a.questionId]?.awardedPoints ?? 0) === 0);
-    if (hasZero && !confirmFinalize) {
-      setConfirmFinalize(true);
-      return;
+  const doFinalize = async (skipZeroCheck = false) => {
+    if (saving) return;
+    if (!skipZeroCheck) {
+      const hasZero = sub.answers.some((a: any) => a.questionType !== 'mcq' && (grades[a.questionId]?.awardedPoints ?? 0) === 0);
+      if (hasZero && !confirmFinalize) {
+        setConfirmFinalize(true);
+        return;
+      }
     }
     setSaving(true);
+    setConfirmFinalize(false);
     setError('');
     try {
       const b: FinalizeMarkingBody = {
@@ -98,7 +102,7 @@ export default function MarkingView() {
               </div>
               <div className="marking-score-label">Running Score</div>
             </div>
-            <button className="btn btn-primary" onClick={finalize} disabled={saving}>
+            <button className="btn btn-primary" onClick={() => doFinalize()} disabled={saving}>
               {saving ? <span className="spinner" /> : 'Finalize Grade'}
             </button>
           </div>
@@ -156,7 +160,7 @@ export default function MarkingView() {
         </div>
         
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2rem' }}>
-          <button className="btn btn-primary" onClick={finalize} disabled={saving}>
+          <button className="btn btn-primary" onClick={() => doFinalize()} disabled={saving}>
             {saving ? <span className="spinner" /> : 'Finalize Grade & Submit'}
           </button>
         </div>
@@ -168,7 +172,7 @@ export default function MarkingView() {
               <p>One or more written answers currently have 0 points assigned. Would you like to proceed anyway?</p>
               <div className="confirm-actions">
                 <button className="btn btn-ghost" onClick={() => setConfirmFinalize(false)}>Go Back</button>
-                <button className="btn btn-primary" onClick={() => { setConfirmFinalize(false); finalize(); }}>Yes, Finalize</button>
+                <button className="btn btn-primary" onClick={() => doFinalize(true)}>Yes, Finalize</button>
               </div>
             </div>
           </div>

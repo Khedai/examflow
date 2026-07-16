@@ -86,9 +86,11 @@ export default function ResultsView() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         {answers.map((a) => {
           const isMCQ = a.questionType === 'mcq';
-          const isCorrect = isMCQ && a.awardedPoints === a.maxPoints;
-          const isWrong = isMCQ && a.awardedPoints === 0;
-          const partial = !isMCQ && a.awardedPoints > 0 && a.awardedPoints < a.maxPoints;
+          const ap = a.awardedPoints ?? 0;
+          const mp = a.maxPoints;
+          const isCorrect = isMCQ && ap === mp;
+          const isWrong = isMCQ && ap === 0;
+          const partial = !isMCQ && ap > 0 && ap < mp;
           return (
             <div key={a.questionId} className="card result-question" style={{ margin: 0 }}>
               <div className="result-question-header">
@@ -96,7 +98,7 @@ export default function ResultsView() {
                   <span className={`badge ${a.questionType === 'mcq' ? 'badge-mcq' : a.questionType === 'short' ? 'badge-short' : 'badge-long'}`}>{a.questionType.toUpperCase()}</span>
                 </div>
                 <div className={`result-score-display ${isCorrect ? 'correct' : isWrong ? 'wrong' : partial ? 'partial' : ''}`} style={{ fontSize: 14, fontWeight: 700 }}>
-                  Awarded: {a.awardedPoints}/{a.maxPoints} pts
+                  Awarded: {ap}/{mp} pts
                 </div>
               </div>
               <div className="result-question-text">{a.questionText}</div>

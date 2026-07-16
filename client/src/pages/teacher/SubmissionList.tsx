@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getSubmissions, resetSubmission, clearStudentSession, getBatches, assignBatch, createBatch, updateBatch, deleteBatch } from '../../api';
+import { getSubmissions, resetSubmission, clearStudentSession, deleteSubmission, getBatches, assignBatch, createBatch, updateBatch, deleteBatch } from '../../api';
 import type { Submission, Batch } from '../../types';
 import TeacherSidebar from '../../components/TeacherSidebar';
 
@@ -14,6 +14,7 @@ export default function SubmissionList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [confirmReset, setConfirmReset] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showBatchDialog, setShowBatchDialog] = useState<string | null>(null);
   const [batchReassign, setBatchReassign] = useState('');
@@ -111,8 +112,21 @@ export default function SubmissionList() {
     setActionLoading(id);
     try {
       await clearStudentSession(id);
+      alert('Session cleared. Student will need to sign in again.');
     } catch (err: any) {
       setError(err.message || 'Failed to clear session');
+    }
+    setActionLoading(null);
+  };
+
+  const deleteSub = async (id: string) => {
+    setActionLoading(id);
+    try {
+      await deleteSubmission(id);
+      setConfirmDelete(null);
+      fetch();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete submission');
     }
     setActionLoading(null);
   };
@@ -233,6 +247,7 @@ export default function SubmissionList() {
                   <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => { setShowBatchDialog(sub.id); setBatchReassign(sub.batch?.id || 'none'); }} disabled={actionLoading === sub.id} title="Assign Batch">Batch</button>
                   <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => setConfirmReset(sub.id)} disabled={actionLoading === sub.id} title="Reset submission for retake">Reset</button>
                   <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => clearSession(sub.id)} disabled={actionLoading === sub.id} title="Clear browser lock session">Clear Session</button>
+                  <button className="btn btn-sm btn-danger" style={{ border: '1px solid var(--danger-600, #dc2626)' }} onClick={() => setConfirmDelete(sub.id)} disabled={actionLoading === sub.id} title="Permanently delete this submission">Delete</button>
                   <button className="btn btn-sm btn-primary" onClick={() => navigate(`/teacher/submissions/${sub.id}`)}>{sub.status === 'MARKED' ? 'Review' : 'Grade'}</button>
                 </div>
               </div>
@@ -249,6 +264,21 @@ export default function SubmissionList() {
                 <button className="btn btn-ghost" onClick={() => setConfirmReset(null)} disabled={actionLoading !== null}>Cancel</button>
                 <button className="btn btn-danger" onClick={() => reset(confirmReset)} disabled={actionLoading !== null}>
                   {actionLoading === confirmReset ? 'Resetting...' : 'Reset Submission'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmDelete && (
+          <div className="confirm-overlay" onClick={() => !actionLoading && setConfirmDelete(null)}>
+            <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+              <h3>Delete Submission</h3>
+              <p>This will <strong>permanently remove</strong> the submission and all answers. The student will be able to sign in and start fresh. Are you sure?</p>
+              <div className="confirm-actions">
+                <button className="btn btn-ghost" onClick={() => setConfirmDelete(null)} disabled={actionLoading !== null}>Cancel</button>
+                <button className="btn btn-danger" onClick={() => deleteSub(confirmDelete)} disabled={actionLoading !== null}>
+                  {actionLoading === confirmDelete ? 'Deleting...' : 'Delete Submission'}
                 </button>
               </div>
             </div>

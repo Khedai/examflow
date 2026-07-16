@@ -24,6 +24,12 @@ export default function ExamEditor() {
   useEffect(() => {
     if (isEdit && id) {
       getExam(id).then((exam) => {
+        if (exam.locked) {
+          setError('This exam is locked because students have started it. Editing is disabled.');
+          setLoadingExam(false);
+          navigate(`/teacher/exams/${id}`, { replace: true });
+          return;
+        }
         setTitle(exam.title);
         setDesc(exam.description);
         setDuration(exam.duration);

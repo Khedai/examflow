@@ -370,8 +370,29 @@ router.post('/start', requireStudent, async (req: Request, res: Response) => {
         FROM answers a JOIN questions q ON q.id = a.question_id
         WHERE a.submission_id = $1 ORDER BY q.position
       `, [existing.id]);
-      // Return original startedAt — do NOT reset the timer on reload
-      return res.json({ submissionId: existing.id, startedAt: existing.started_at, answers });
+      
+      // Check if this is a fresh reset (all answers empty) or timer already expired
+      const allEmpty = answers.every((a: any) => !a.answerText || a.answerText.trim() === '');
+      // Normalise started_at to string (pg returns Date objects, sqlite returns strings)
+      const startedAtStr: string = typeof existing.started_at === 'string'
+        ? existing.started_at
+        : (existing.started_at instanceof Date ? existing.started_at.toISOString() : String(existing.started_at));
+      const elapsed = Date.now() - new Date(startedAtStr + (startedAtStr.endsWith('Z') ? '' : 'Z')).getTime();
+      const totalMs = examRow.duration * 60 * 1000;
+      const timerExpired = elapsed >= totalMs;
+      
+      let startedAt = existing.started_at;
+      if (allEmpty || timerExpired) {
+        // Fresh reset or timer already ran out — give a fresh start time
+        startedAt = new Date().toISOString();
+        await run('UPDATE submissions SET started_at = $1 WHERE id = $2', [startedAt, existing.id]);
+      }
+      
+      // Ensure startedAt is always a string (PG may return Date objects)
+      const startedAtAsString: string = typeof startedAt === 'string'
+        ? startedAt
+        : (startedAt instanceof Date ? startedAt.toISOString() : String(startedAt));
+      return res.json({ submissionId: existing.id, startedAt: startedAtAsString, answers });
     }
 
     // Get the latest batch to auto-assign

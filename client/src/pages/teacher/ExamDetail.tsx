@@ -29,15 +29,23 @@ export default function ExamDetail() {
     }
   };
 
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
+
   const handleDeleteSubmission = async (submissionId: string) => {
-    if (!id) return;
+    if (!id || deleteLoading) return;
+    setDeleteLoading(submissionId);
     try {
       await deleteSubmission(submissionId);
       setSubmissions((prev) => prev.filter((s) => s.id !== submissionId));
+      // Refresh exam to update locked state (server unlocks when no submissions remain)
+      const updated = await getExam(id);
+      setExam(updated);
     } catch (err: any) {
       setError(err.message || 'Failed to delete submission');
+    } finally {
+      setDeleteLoading(null);
+      setConfirmDeleteSub(null);
     }
-    setConfirmDeleteSub(null);
   };
 
   if (loading) return <div className="loading-center"><span className="spinner" /></div>;
@@ -129,8 +137,8 @@ export default function ExamDetail() {
                     <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => navigate(`/teacher/submissions/${s.id}`)}>
                       {s.status === 'MARKED' ? 'Review Grade' : 'Grade Submission'}
                     </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => setConfirmDeleteSub(s.id)}>
-                      Delete
+                    <button className="btn btn-sm btn-danger" onClick={() => setConfirmDeleteSub(s.id)} disabled={deleteLoading === s.id}>
+                      {deleteLoading === s.id ? 'Deleting...' : 'Delete'}
                     </button>
                   </div>
                 </div>
@@ -146,7 +154,9 @@ export default function ExamDetail() {
               <p>Are you sure you want to delete this submission? All student answers and scores for this submission will be permanently deleted.</p>
               <div className="confirm-actions">
                 <button className="btn btn-ghost" onClick={() => setConfirmDeleteSub(null)}>Cancel</button>
-                <button className="btn btn-danger" onClick={() => handleDeleteSubmission(confirmDeleteSub)}>Delete Submission</button>
+                <button className="btn btn-danger" onClick={() => handleDeleteSubmission(confirmDeleteSub)} disabled={deleteLoading !== null}>
+                  {deleteLoading === confirmDeleteSub ? 'Deleting...' : 'Delete Submission'}
+                </button>
               </div>
             </div>
           </div>

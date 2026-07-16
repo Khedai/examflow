@@ -77,7 +77,13 @@ export default function ExamTaking() {
     // Stop auto-save and timer
     if (saveTimerRef.current) { clearInterval(saveTimerRef.current); saveTimerRef.current = null; }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    try { await submitExam(submissionId); navigate(`/student/result/${submissionId}`); }
+    try {
+      // Save any unsaved answers before submitting to prevent data loss
+      const ansArray = Object.entries(answersRef.current).map(([questionId, answerText]) => ({ questionId, answerText }));
+      await saveAnswers(submissionId, ansArray);
+      await submitExam(submissionId);
+      navigate(`/student/result/${submissionId}`);
+    }
     catch (err: any) { submittedRef.current = false; if (!isAuto) setError(err.message || 'Failed to submit'); }
   }, [submissionId, navigate]);
 
