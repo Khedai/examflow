@@ -1,13 +1,18 @@
 import type {
-  Exam,
-  Student,
-  Submission,
-  Batch,
-  CreateExamBody,
-  FinalizeMarkingBody,
+  Exam, Student, Submission, Batch, CreateExamBody, FinalizeMarkingBody,
 } from './types';
 
 const BASE = import.meta.env.VITE_API_URL || '';
+const TIMEOUT_MS = 25000;
+
+function redirectToLanding() {
+  localStorage.removeItem('student_token');
+  localStorage.removeItem('student_data');
+  localStorage.removeItem('teacher_token');
+  if (window.location.pathname !== '/' && window.location.pathname !== '') {
+    window.location.href = '/';
+  }
+}
 
 function getHeaders(extra?: Record<string, string>): HeadersInit {
   const headers: Record<string, string> = {
@@ -22,23 +27,42 @@ function getHeaders(extra?: Record<string, string>): HeadersInit {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: getHeaders(),
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: getHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err?.name === 'AbortError') {
+      throw new Error('The server took too long to respond. Please try again.');
+    }
+    throw new Error('Unable to reach the server. Please check your internet connection and try again.');
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (res.status === 401) {
-    localStorage.removeItem('student_token');
-    localStorage.removeItem('student_data');
-    localStorage.removeItem('teacher_token');
-    if (!window.location.pathname.endsWith('/login')) {
-      window.location.href = '/login';
+    redirectToLanding();
+  }
+
+  const text = await res.text();
+  let data: any = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = {};
     }
   }
 
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data as T;
 }
 

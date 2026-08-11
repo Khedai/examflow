@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { requireTeacher } from '../middleware/auth';
+import { requireTeacher, optionalTeacher } from '../middleware/auth';
 import { getOne, getAll, run, transaction } from '../db';
 import { Exam, Question } from '../types';
 
@@ -55,7 +55,7 @@ async function fetchExamWithQuestions(examId: string): Promise<Exam | null> {
 }
 
 // GET /api/exams
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', optionalTeacher, async (req: Request, res: Response) => {
   try {
     const teacher = isTeacher(req);
     const examRows = await getAll('SELECT * FROM exams ORDER BY created_at DESC');
@@ -75,7 +75,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // GET /api/exams/:id
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', optionalTeacher, async (req: Request, res: Response) => {
   try {
     const exam = await fetchExamWithQuestions(req.params.id as string);
     if (!exam) return res.status(404).json({ error: 'Exam not found' });

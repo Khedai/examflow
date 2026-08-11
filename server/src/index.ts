@@ -35,9 +35,23 @@ import { errorHandler } from './middleware/errorHandler';
 import { initSchema, shutdown, cleanupStaleSessions } from './db';
 import { seed } from './seed';
 
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'https://examflow.vercel.app',
+  ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []),
+];
+
 async function start() {
   const app = express();
-  app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
+  app.use(cors({
+    origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+      // Allow requests without an Origin header (curl, same-origin, server-to-server)
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(null, false);
+    },
+    credentials: true,
+  }));
   app.use(express.json());
 
   // Initialize DB schema

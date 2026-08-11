@@ -237,8 +237,8 @@ router.post('/:id/finalize', requireTeacher, async (req: Request, res: Response)
         );
       }
       await client.query(
-        "UPDATE submissions SET status = 'MARKED', score = (SELECT COALESCE(SUM(awarded_points), 0) FROM answers WHERE submission_id = $1) WHERE id = $1",
-        [id]
+        "UPDATE submissions SET status = 'MARKED', score = (SELECT COALESCE(SUM(awarded_points), 0) FROM answers WHERE submission_id = $1) WHERE id = $2",
+        [id, id]
       );
     });
 
