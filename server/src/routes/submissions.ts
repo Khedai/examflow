@@ -26,7 +26,7 @@ router.get('/', optionalTeacher, async (req: Request, res: Response) => {
     const { status, examId, search, batchId } = req.query;
     let sql = `
       SELECT s.*, st.student_id as st_id, st.name as st_name, st.surname as st_surname, st.cell as st_cell,
-             e.title as exam_title,
+             e.title as exam_title, e.duration as exam_duration,
              b.name as batch_name, b.id as b_id
       FROM submissions s
       JOIN students st ON st.id = s.student_id
@@ -62,10 +62,50 @@ router.get('/', optionalTeacher, async (req: Request, res: Response) => {
     sql += ' ORDER BY s.created_at DESC';
 
     const rows = await getAll(sql, params);
+
+    // ── Lazy expiry: auto-submit stale STARTED submissions whose timer has run out ──
+    // If a student closed the browser without submitting, the exam should still be
+    // auto-submitted once the duration has elapsed so it doesn't show as in-progress forever.
+    let expired = 0;
+    for (const row of rows) {
+      if (row.status !== 'STARTED') continue;
+      const durationMs = parseInt(row.exam_duration || '0', 10) * 60 * 1000;
+      if (!durationMs) continue;
+
+      // Normalise started_at (PG returns Date objects, SQLite returns strings)
+      const startRaw = row.started_at;
+      const startMs = startRaw instanceof Date
+        ? startRaw.getTime()
+        : new Date(String(startRaw).endsWith('Z') ? startRaw : startRaw + 'Z').getTime();
+      if (!startMs || Date.now() - startMs < durationMs) continue;
+
+      const expiredAt = new Date(startMs + durationMs).toISOString();
+      await run(
+        "UPDATE submissions SET status = 'SUBMITTED', submitted_at = $1 WHERE id = $2 AND status = 'STARTED'",
+        [expiredAt, row.id]
+      );
+      // Auto-grade MCQs just like a normal student submit
+      await run(`
+        UPDATE answers SET awarded_points = (
+          SELECT q.points FROM questions q
+          WHERE q.id = answers.question_id AND q.type = 'mcq' AND q.correct = answers.answer_text
+        )
+        WHERE submission_id = $1
+      `, [row.id]);
+
+      row.status = 'SUBMITTED';
+      row.submitted_at = expiredAt;
+      expired++;
+    }
+    if (expired > 0) {
+      console.log(`[submissions] Auto-expired ${expired} stale STARTED submission(s)`);
+    }
+
     const submissions = rows.map((row: any) => ({
       id: row.id,
       examId: row.exam_id,
       examTitle: row.exam_title,
+      examDuration: parseInt(row.exam_duration || '0', 10),
       student: { id: row.student_id, studentId: row.st_id, name: row.st_name, surname: row.st_surname, cell: row.st_cell || '' },
       batch: row.b_id ? { id: row.b_id, name: row.batch_name } : null,
       status: row.status,

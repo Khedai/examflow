@@ -55,6 +55,7 @@ export interface Submission {
   id: string;
   examId: string;
   examTitle?: string;
+  examDuration?: number;
   student: Student;
   batch?: { id: string; name: string } | null;
   status: SubmissionStatus;

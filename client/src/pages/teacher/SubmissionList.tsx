@@ -25,14 +25,16 @@ function formatDuration(startedAt: string | null | undefined, submittedAt: strin
   return `${h}h ${m}m`;
 }
 
-function liveElapsed(startedAt: string | null | undefined): string | null {
+function liveElapsed(startedAt: string | null | undefined, durationMin?: number): string | null {
   if (!startedAt) return null;
   const start = new Date(startedAt.endsWith('Z') ? startedAt : startedAt + 'Z').getTime();
   if (isNaN(start)) return null;
-  const mins = Math.max(0, Math.round((Date.now() - start) / 60000));
-  if (mins < 60) return `${mins} min`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
+  const elapsedMins = Math.max(0, Math.round((Date.now() - start) / 60000));
+  // If we know the exam duration and the timer has run out, show "Timed out" instead of absurd values
+  if (durationMin && elapsedMins >= durationMin) return 'Timed out';
+  if (elapsedMins < 60) return `${elapsedMins} min`;
+  const h = Math.floor(elapsedMins / 60);
+  const m = elapsedMins % 60;
   return `${h}h ${m}m`;
 }
 
@@ -318,7 +320,7 @@ export default function SubmissionList() {
                     </span>
                     {sub.status === 'STARTED' && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--amber-600)' }}>
-                        ⏱️ Elapsed: <strong>{liveElapsed(sub.startedAt)}</strong>
+                        ⏱️ Elapsed: <strong>{liveElapsed(sub.startedAt, sub.examDuration)}</strong>
                       </span>
                     )}
                     {(sub.status === 'SUBMITTED' || sub.status === 'MARKED') && (
