@@ -8,14 +8,29 @@ const router = Router();
 // All routes require teacher auth
 router.use(requireTeacher);
 
-// GET /api/batches — list all batches
+// GET /api/batches — list all batches with submission stats
 router.get('/', async (_req: Request, res: Response) => {
   try {
-    const rows = await getAll('SELECT id, name, created_at FROM batches ORDER BY created_at DESC');
+    const rows = await getAll(`
+      SELECT
+        b.id, b.name, b.created_at,
+        COUNT(DISTINCT s.id) as student_count,
+        COUNT(DISTINCT CASE WHEN s.status = 'STARTED' THEN s.id END) as started_count,
+        COUNT(DISTINCT CASE WHEN s.status = 'SUBMITTED' THEN s.id END) as submitted_count,
+        COUNT(DISTINCT CASE WHEN s.status = 'MARKED' THEN s.id END) as marked_count
+      FROM batches b
+      LEFT JOIN submissions s ON s.batch_id = b.id
+      GROUP BY b.id, b.name, b.created_at
+      ORDER BY b.created_at DESC
+    `);
     const batches = rows.map((r: any) => ({
       id: r.id,
       name: r.name,
       createdAt: r.created_at,
+      studentCount: parseInt(r.student_count || '0'),
+      startedCount: parseInt(r.started_count || '0'),
+      submittedCount: parseInt(r.submitted_count || '0'),
+      markedCount: parseInt(r.marked_count || '0'),
     }));
     return res.json(batches);
   } catch (err: any) {
@@ -38,6 +53,10 @@ router.post('/', async (req: Request, res: Response) => {
       id: row.id,
       name: row.name,
       createdAt: row.created_at,
+      studentCount: 0,
+      startedCount: 0,
+      submittedCount: 0,
+      markedCount: 0,
     });
   } catch (err: any) {
     console.error('Create batch error:', err);
@@ -57,10 +76,26 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (!existing) return res.status(404).json({ error: 'Batch not found' });
     await run('UPDATE batches SET name = $1 WHERE id = $2', [name.trim(), id]);
     const row = await getOne('SELECT id, name, created_at FROM batches WHERE id = $1', [id]);
+    // Fetch fresh stats for the renamed batch
+    const stats = await getOne(`
+      SELECT
+        COUNT(DISTINCT s.id) as student_count,
+        COUNT(DISTINCT CASE WHEN s.status = 'STARTED' THEN s.id END) as started_count,
+        COUNT(DISTINCT CASE WHEN s.status = 'SUBMITTED' THEN s.id END) as submitted_count,
+        COUNT(DISTINCT CASE WHEN s.status = 'MARKED' THEN s.id END) as marked_count
+      FROM batches b
+      LEFT JOIN submissions s ON s.batch_id = b.id
+      WHERE b.id = $1
+      GROUP BY b.id
+    `, [id]);
     return res.json({
       id: row.id,
       name: row.name,
       createdAt: row.created_at,
+      studentCount: parseInt(stats?.student_count || '0'),
+      startedCount: parseInt(stats?.started_count || '0'),
+      submittedCount: parseInt(stats?.submitted_count || '0'),
+      markedCount: parseInt(stats?.marked_count || '0'),
     });
   } catch (err: any) {
     console.error('Update batch error:', err);

@@ -496,14 +496,19 @@ router.get('/:id/result', requireStudent, async (req: Request, res: Response) =>
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
 
     if (sub.status !== 'MARKED') {
-      return res.json({ status: sub.status, published: false, submittedAt: sub.submitted_at || null });
+      return res.json({
+        status: sub.status,
+        published: false,
+        startedAt: sub.started_at,
+        submittedAt: sub.submitted_at || null,
+      });
     }
 
     if (!sub.exam_published) {
       return res.json({
         id: sub.id, examId: sub.exam_id, examTitle: sub.exam_title,
         status: 'MARKED', published: false,
-        submittedAt: sub.submitted_at || null, score: sub.score,
+        startedAt: sub.started_at, submittedAt: sub.submitted_at || null, score: sub.score,
       });
     }
 

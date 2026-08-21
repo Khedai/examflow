@@ -6,7 +6,6 @@ import ErrorBoundary from './components/ErrorBoundary';
 
 import Landing from './pages/Landing';
 import TeacherLogin from './pages/teacher/TeacherLogin';
-import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import ExamList from './pages/teacher/ExamList';
 import ExamEditor from './pages/teacher/ExamEditor';
 import ExamDetail from './pages/teacher/ExamDetail';
@@ -42,11 +41,12 @@ export default function App() {
             <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/teacher/login" element={<TeacherLogin />} />
+            {/* /teacher now auto-redirects to submissions (dashboard removed) */}
             <Route
               path="/teacher"
               element={
                 <TeacherRoute>
-                  <TeacherDashboard />
+                  <Navigate to="/teacher/submissions" replace />
                 </TeacherRoute>
               }
             />

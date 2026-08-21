@@ -32,9 +32,6 @@ export default function TeacherSidebar({ extra }: Props) {
           <img src="/logo.png" alt="Logo" style={{ height: 60, width: 160, maxWidth: '100%' }} />
         </div>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Link to="/teacher" className={`nav-item ${isActive('/teacher') && !isActive('/teacher/exams') && !isActive('/teacher/submissions') ? 'active' : ''}`} onClick={close}>
-            <NavIcon letter="D" /> Dashboard
-          </Link>
           <Link to="/teacher/exams" className={`nav-item ${isActive('/teacher/exams') ? 'active' : ''}`} onClick={close}>
             <NavIcon letter="E" /> Exams
           </Link>

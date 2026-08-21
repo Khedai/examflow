@@ -38,7 +38,16 @@ export default function ResultsView() {
           <div className="landing-card-icon" style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
           <h1 style={{ fontSize: 24, marginBottom: 8 }}>Exam Submitted Successfully</h1>
           <p className="text-secondary" style={{ marginBottom: 20 }}>Your answers have been securely submitted and are now awaiting marking by the teacher.</p>
-          {result.submittedAt && <p className="text-sm text-hint" style={{ marginBottom: 24 }}>Submitted at: {new Date(result.submittedAt).toLocaleString()}</p>}
+          {result.startedAt && (
+            <p className="text-sm text-hint" style={{ marginBottom: 4 }}>
+              Started: {new Date(result.startedAt.endsWith('Z') ? result.startedAt : result.startedAt + 'Z').toLocaleString()}
+            </p>
+          )}
+          {result.submittedAt && (
+            <p className="text-sm text-hint" style={{ marginBottom: 24 }}>
+              Submitted: {new Date(result.submittedAt.endsWith('Z') ? result.submittedAt : result.submittedAt + 'Z').toLocaleString()}
+            </p>
+          )}
           <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => navigate('/student')}>Back to Dashboard</button>
         </div>
       </div>
@@ -81,6 +90,15 @@ export default function ResultsView() {
         <div className={`grade-label ${gradeClass}`} style={{ marginBottom: '1.5rem' }}>{grade}</div>
         <div className="progress-bar" style={{ maxWidth: 320, margin: '0 auto 8px auto' }}><div className="progress-fill" style={{ width: `${percentage}%` }} /></div>
         <p className="text-sm text-secondary" style={{ fontWeight: 600 }}>{percentage.toFixed(0)}% Score</p>
+        {/* Time tracking */}
+        <div className="text-sm text-hint" style={{ marginTop: 16, display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {result.startedAt && (
+            <span>Started: {new Date(result.startedAt.endsWith('Z') ? result.startedAt : result.startedAt + 'Z').toLocaleString()}</span>
+          )}
+          {result.submittedAt && (
+            <span>Submitted: {new Date(result.submittedAt.endsWith('Z') ? result.submittedAt : result.submittedAt + 'Z').toLocaleString()}</span>
+          )}
+        </div>
       </div>
       <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: '1.25rem', borderLeft: '4px solid var(--purple-600)', paddingLeft: 10 }}>Question Review</h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

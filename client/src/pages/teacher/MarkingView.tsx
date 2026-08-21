@@ -4,6 +4,23 @@ import { getSubmission, finalizeMarking } from '../../api';
 import type { FinalizeMarkingBody } from '../../types';
 import TeacherSidebar from '../../components/TeacherSidebar';
 
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value.endsWith('Z') ? value : value + 'Z');
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatTook(startedAt: string | null | undefined, submittedAt: string | null | undefined): string | null {
+  if (!startedAt || !submittedAt) return null;
+  const start = new Date(startedAt.endsWith('Z') ? startedAt : startedAt + 'Z').getTime();
+  const end = new Date(submittedAt.endsWith('Z') ? submittedAt : submittedAt + 'Z').getTime();
+  if (isNaN(start) || isNaN(end) || end < start) return null;
+  const mins = Math.round((end - start) / 60000);
+  if (mins < 60) return `${mins} min`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
 interface AnswerDetail {
   id: string;
   questionId: string;
@@ -94,6 +111,23 @@ export default function MarkingView() {
             <p className="text-secondary" style={{ marginTop: 4, fontWeight: 500 }}>
               ID: {sub.student?.studentId} &middot; Exam: {sub.examTitle}
             </p>
+            <div className="text-sm" style={{ marginTop: 10, display: 'flex', gap: 16, flexWrap: 'wrap', color: 'var(--text-hint)' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                ▶ Started: <strong style={{ color: 'var(--text-secondary)' }}>{formatDateTime(sub.startedAt)}</strong>
+              </span>
+              {sub.submittedAt && (
+                <>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    ✔ Submitted: <strong style={{ color: 'var(--text-secondary)' }}>{formatDateTime(sub.submittedAt)}</strong>
+                  </span>
+                  {formatTook(sub.startedAt, sub.submittedAt) && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--teal-800)' }}>
+                      ⏱️ Took: <strong>{formatTook(sub.startedAt, sub.submittedAt)}</strong>
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
             <div className="marking-score-display">

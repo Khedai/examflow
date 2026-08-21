@@ -45,6 +45,10 @@ export interface Batch {
   id: string;
   name: string;
   createdAt: string;
+  studentCount?: number;
+  startedCount?: number;
+  submittedCount?: number;
+  markedCount?: number;
 }
 
 export interface Submission {

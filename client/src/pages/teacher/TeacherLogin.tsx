@@ -21,7 +21,7 @@ export default function TeacherLogin() {
     try {
       const data = await teacherLogin(password);
       loginTeacher(data.token);
-      navigate('/teacher');
+      navigate('/teacher/submissions');
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {

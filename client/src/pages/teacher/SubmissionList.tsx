@@ -4,6 +4,38 @@ import { getSubmissions, resetSubmission, clearStudentSession, deleteSubmission,
 import type { Submission, Batch } from '../../types';
 import TeacherSidebar from '../../components/TeacherSidebar';
 
+function formatDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value.endsWith('Z') ? value : value + 'Z');
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function formatDuration(startedAt: string | null | undefined, submittedAt: string | null | undefined): string | null {
+  if (!startedAt || !submittedAt) return null;
+  const start = new Date(startedAt.endsWith('Z') ? startedAt : startedAt + 'Z').getTime();
+  const end = new Date(submittedAt.endsWith('Z') ? submittedAt : submittedAt + 'Z').getTime();
+  if (isNaN(start) || isNaN(end) || end < start) return null;
+  const mins = Math.round((end - start) / 60000);
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}h ${m}m`;
+}
+
+function liveElapsed(startedAt: string | null | undefined): string | null {
+  if (!startedAt) return null;
+  const start = new Date(startedAt.endsWith('Z') ? startedAt : startedAt + 'Z').getTime();
+  if (isNaN(start)) return null;
+  const mins = Math.max(0, Math.round((Date.now() - start) / 60000));
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}h ${m}m`;
+}
+
 export default function SubmissionList() {
   const navigate = useNavigate();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
@@ -48,12 +80,22 @@ export default function SubmissionList() {
     fetchBatches();
   }, [filter, selectedBatch]);
 
+  // Refresh whenever the list contains in-progress submissions so "elapsed" stays current
+  useEffect(() => {
+    if (!submissions.some((s) => s.status === 'STARTED')) return;
+    const id = setInterval(() => {
+      fetch();
+    }, 30000);
+    return () => clearInterval(id);
+  }, [submissions]);
+
   const handleBatchAssign = async () => {
     if (!showBatchDialog || !batchReassign) return;
     setActionLoading(showBatchDialog);
     try {
       await assignBatch(showBatchDialog, batchReassign === 'none' ? null as any : batchReassign);
       fetch();
+      fetchBatches();
     } catch (err: any) {
       setError(err.message || 'Failed to assign batch');
     }
@@ -161,6 +203,28 @@ export default function SubmissionList() {
           </div>
         </div>
 
+        {/* Summary stats strip */}
+        {!loading && submissions.length > 0 && (
+          <div style={{ display: 'flex', gap: 10, marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+            <div className="stat-card" style={{ padding: '12px 18px', flex: 1, minWidth: 140 }}>
+              <div className="stat-value" style={{ fontSize: 20 }}>{submissions.length}</div>
+              <div className="stat-label">Submissions</div>
+            </div>
+            <div className="stat-card" style={{ padding: '12px 18px', flex: 1, minWidth: 140 }}>
+              <div className="stat-value" style={{ fontSize: 20, color: 'var(--amber-600)' }}>{submissions.filter(s => s.status === 'STARTED').length}</div>
+              <div className="stat-label">In Progress</div>
+            </div>
+            <div className="stat-card" style={{ padding: '12px 18px', flex: 1, minWidth: 140 }}>
+              <div className="stat-value" style={{ fontSize: 20, color: '#1e40af' }}>{submissions.filter(s => s.status === 'SUBMITTED').length}</div>
+              <div className="stat-label">Pending Review</div>
+            </div>
+            <div className="stat-card" style={{ padding: '12px 18px', flex: 1, minWidth: 140 }}>
+              <div className="stat-value" style={{ fontSize: 20, color: 'var(--teal-600)' }}>{submissions.filter(s => s.status === 'MARKED').length}</div>
+              <div className="stat-label">Marked</div>
+            </div>
+          </div>
+        )}
+
         {error && <div className="error-banner">{error}</div>}
 
         {/* Batch Manager Panel */}
@@ -168,7 +232,7 @@ export default function SubmissionList() {
           <div className="card" style={{ marginBottom: 20, padding: '1.5rem', animation: 'fadeIn 0.25s ease-out' }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Batch Manager</h3>
             <p className="text-sm text-secondary" style={{ marginBottom: 16 }}>
-              New submissions are automatically assigned to the newest active batch.
+              New submissions are automatically assigned to the newest active batch. Each batch shows its progress at a glance.
             </p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
               <input className="input" style={{ flex: 1 }} placeholder="New batch name (e.g. Test Group A)" value={newBatchName} onChange={(e) => setNewBatchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateBatch()} />
@@ -180,17 +244,30 @@ export default function SubmissionList() {
                 <p className="text-sm text-secondary">No batches created yet.</p>
               ) : (
                 batches.map((b, i) => (
-                  <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                    {i === 0 && <span className="badge badge-published" style={{ fontSize: 10 }}>ACTIVE</span>}
+                  <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 0', borderBottom: '1px solid var(--border-subtle)', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {i === 0 && <span className="badge badge-published" style={{ fontSize: 10 }}>ACTIVE</span>}
+                        {editingBatchId === b.id ? (
+                          <input className="input" style={{ flex: 1, padding: '6px 12px', minHeight: 36, fontSize: 13 }} value={editingBatchName} onChange={(e) => setEditingBatchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRenameBatch(b.id, editingBatchName)} autoFocus />
+                        ) : (
+                          <span style={{ fontSize: 14, fontWeight: 600 }}>{b.name}</span>
+                        )}
+                      </div>
+                      <div className="text-sm text-secondary" style={{ marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap', fontWeight: 500 }}>
+                        <span>👥 <strong style={{ color: 'var(--text-primary)' }}>{b.studentCount ?? 0}</strong> students</span>
+                        <span style={{ color: 'var(--amber-600)' }}>▶ {b.startedCount ?? 0} in progress</span>
+                        <span style={{ color: '#1e40af' }}>✓ {b.submittedCount ?? 0} submitted</span>
+                        <span style={{ color: 'var(--teal-600)' }}>★ {b.markedCount ?? 0} marked</span>
+                      </div>
+                    </div>
                     {editingBatchId === b.id ? (
                       <>
-                        <input className="input" style={{ flex: 1, padding: '6px 12px', minHeight: 36, fontSize: 13 }} value={editingBatchName} onChange={(e) => setEditingBatchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRenameBatch(b.id, editingBatchName)} autoFocus />
                         <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => handleRenameBatch(b.id, editingBatchName)}>Save</button>
                         <button className="btn btn-sm btn-ghost" onClick={() => { setEditingBatchId(null); setEditingBatchName(''); }}>Cancel</button>
                       </>
                     ) : (
                       <>
-                        <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{b.name}</span>
                         <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => { setEditingBatchId(b.id); setEditingBatchName(b.name); }}>Rename</button>
                         <button className="btn btn-sm btn-danger" onClick={() => handleDeleteBatch(b.id)}>Delete</button>
                       </>
@@ -233,6 +310,29 @@ export default function SubmissionList() {
                   <div className="text-sm text-secondary" style={{ marginTop: 4, fontWeight: 500 }}>
                     {sub.examTitle}
                     {sub.batch ? <span style={{ marginLeft: 8, color: 'var(--purple-600)' }}>• {sub.batch.name}</span> : null}
+                  </div>
+                  {/* Time tracking block */}
+                  <div className="text-sm" style={{ marginTop: 6, display: 'flex', gap: 14, flexWrap: 'wrap', color: 'var(--text-hint)' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      ▶ Started: <strong style={{ color: 'var(--text-secondary)' }}>{formatDate(sub.startedAt)}</strong>
+                    </span>
+                    {sub.status === 'STARTED' && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--amber-600)' }}>
+                        ⏱️ Elapsed: <strong>{liveElapsed(sub.startedAt)}</strong>
+                      </span>
+                    )}
+                    {(sub.status === 'SUBMITTED' || sub.status === 'MARKED') && (
+                      <>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          ✔ Submitted: <strong style={{ color: 'var(--text-secondary)' }}>{formatDate(sub.submittedAt)}</strong>
+                        </span>
+                        {formatDuration(sub.startedAt, sub.submittedAt) && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--teal-800)' }}>
+                            ⏱️ Took: <strong>{formatDuration(sub.startedAt, sub.submittedAt)}</strong>
+                          </span>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
