@@ -112,6 +112,9 @@ export const finalizeMarking = (id: string, body: FinalizeMarkingBody) =>
 export const resetSubmission = (id: string) =>
   request<{ reset: boolean }>('POST', `/api/submissions/${id}/reset`);
 
+export const reopenSubmission = (id: string) =>
+  request<{ reopened: boolean }>('POST', `/api/submissions/${id}/reopen`);
+
 export const deleteSubmission = (id: string) =>
   request<{ deleted: boolean }>('DELETE', `/api/submissions/${id}`);
 

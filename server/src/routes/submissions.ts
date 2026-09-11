@@ -326,6 +326,32 @@ router.post('/:id/reset', requireTeacher, async (req: Request, res: Response) =>
   }
 });
 
+// POST /api/submissions/:id/reopen (teacher)
+// Reopens a SUBMITTED submission so the student can continue and re-submit.
+// Unlike /reset this KEEPS the saved answers and the student's session token
+// (so their open exam tab stays logged in), and starts a fresh timer so the
+// lazy-expiry sweep doesn't immediately auto-submit it again.
+router.post('/:id/reopen', requireTeacher, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params as { id: string };
+    const sub = await getOne('SELECT * FROM submissions WHERE id = $1', [id]);
+    if (!sub) return res.status(404).json({ error: 'Submission not found' });
+    if (sub.status !== 'SUBMITTED') {
+      return res.status(409).json({ error: 'Only submitted submissions can be reopened' });
+    }
+
+    await run(
+      "UPDATE submissions SET status = 'STARTED', started_at = NOW(), submitted_at = NULL, score = NULL WHERE id = $1",
+      [id]
+    );
+
+    return res.json({ reopened: true });
+  } catch (err: any) {
+    console.error('Reopen error:', err);
+    return res.status(500).json({ error: 'Failed to reopen submission' });
+  }
+});
+
 // DELETE /api/submissions/:id (teacher — fully delete a submission)
 router.delete('/:id', requireTeacher, async (req: Request, res: Response) => {
   try {
@@ -496,7 +522,14 @@ router.post('/:id/submit', requireStudent, async (req: Request, res: Response) =
 
     const sub = await getOne('SELECT * FROM submissions WHERE id = $1 AND student_id = $2', [id, studentId]);
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
-    if (sub.status !== 'STARTED') return res.status(409).json({ error: 'Already submitted' });
+
+    // Idempotent submit: if the submission is no longer STARTED it was already finished
+    // server-side (e.g. the lazy-expiry sweep auto-submitted it at the deadline while the
+    // student was still on the exam page, or a duplicate request arrived). Treat that as
+    // success so the student is never blocked from reaching the result page.
+    if (sub.status !== 'STARTED') {
+      return res.json({ submittedAt: sub.submitted_at || new Date().toISOString(), already: true });
+    }
 
     await transaction(async (client) => {
       // Auto-grade MCQ answers using subquery (compatible with both PG and SQLite)

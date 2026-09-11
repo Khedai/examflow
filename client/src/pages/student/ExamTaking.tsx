@@ -9,6 +9,7 @@ export default function ExamTaking() {
   const [exam, setExam] = useState<Exam | null>(null);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<string | null>(null);
+  const [endTime, setEndTime] = useState<number | null>(null);
   const [currentQ, setCurrentQ] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -37,21 +38,47 @@ export default function ExamTaking() {
         // Parse as UTC — append Z if missing (fixes SQLite timezone issue)
         const startedAtStr = startData.startedAt.endsWith('Z') ? startData.startedAt : startData.startedAt + 'Z';
         const startTime = new Date(startedAtStr).getTime();
-        const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        const total = examData.duration * 60;
-        setTimeLeft(Math.max(0, total - elapsed));
-      } catch (err: any) { setError(err.message || 'Failed to start exam'); }
+        // Use an absolute end-time so the countdown can't drift or freeze when the tab is backgrounded
+        const end = startTime + examData.duration * 60 * 1000;
+        setEndTime(end);
+        setTimeLeft(Math.max(0, Math.round((end - Date.now()) / 1000)));
+      } catch (err: any) {
+        // Submission already finished server-side (auto-expired / duplicate submit) —
+        // drop the student on the dashboard instead of a dead-end error.
+        if (/already submitted|not in progress/i.test(err?.message || '')) {
+          navigate('/student');
+          return;
+        }
+        setError(err.message || 'Failed to start exam');
+      }
       finally { setLoading(false); }
     })();
-  }, [examId]);
+  }, [examId, navigate]);
 
   useEffect(() => {
-    if (timeLeft === null) return;
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => { if (prev === null || prev <= 0) { if (timerRef.current) clearInterval(timerRef.current); return 0; } return prev - 1; });
-    }, 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [timeLeft !== null]);
+    if (endTime === null) return;
+    const tick = () => {
+      const remaining = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      if (remaining <= 0 && timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+    tick();
+    timerRef.current = setInterval(tick, 1000);
+    // Re-sync immediately when the tab regains focus — intervals are throttled in the
+    // background, so without this the countdown can freeze and the student keeps working
+    // past the real deadline (then hitting the server-side lazy-expiry 409 on submit).
+    const onVisible = () => { if (document.visibilityState === 'visible') tick(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [endTime]);
 
   useEffect(() => { if (timeLeft === 0 && submissionId) handleSubmitExam(true); }, [timeLeft]);
 
@@ -78,10 +105,21 @@ export default function ExamTaking() {
     if (saveTimerRef.current) { clearInterval(saveTimerRef.current); saveTimerRef.current = null; }
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     try {
-      // Save any unsaved answers before submitting to prevent data loss
-      const ansArray = Object.entries(answersRef.current).map(([questionId, answerText]) => ({ questionId, answerText }));
-      await saveAnswers(submissionId, ansArray);
-      await submitExam(submissionId);
+      // Final best-effort save. If the server already auto-submitted this submission
+      // (lazy expiry) the save is rejected with 409 "not in progress" — that's fine,
+      // the submit below is authoritative and will succeed idempotently.
+      try {
+        const ansArray = Object.entries(answersRef.current).map(([questionId, answerText]) => ({ questionId, answerText }));
+        await saveAnswers(submissionId, ansArray);
+      } catch { /* ignore — submit below is authoritative */ }
+
+      try {
+        await submitExam(submissionId);
+      } catch (err: any) {
+        // Already finished server-side (auto-expired / duplicate submit) → not an error.
+        if (!/already submitted|not in progress/i.test(err?.message || '')) throw err;
+      }
+
       navigate(`/student/result/${submissionId}`);
     }
     catch (err: any) { submittedRef.current = false; if (!isAuto) setError(err.message || 'Failed to submit'); }

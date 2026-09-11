@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getSubmissions, resetSubmission, clearStudentSession, deleteSubmission, getBatches, assignBatch, createBatch, updateBatch, deleteBatch } from '../../api';
+import { getSubmissions, resetSubmission, reopenSubmission, clearStudentSession, deleteSubmission, getBatches, assignBatch, createBatch, updateBatch, deleteBatch } from '../../api';
 import type { Submission, Batch } from '../../types';
 import TeacherSidebar from '../../components/TeacherSidebar';
 
@@ -48,6 +48,7 @@ export default function SubmissionList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [confirmReset, setConfirmReset] = useState<string | null>(null);
+  const [confirmReopen, setConfirmReopen] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showBatchDialog, setShowBatchDialog] = useState<string | null>(null);
@@ -152,6 +153,19 @@ export default function SubmissionList() {
     setActionLoading(null);
   };
 
+  const reopen = async (id: string) => {
+    setActionLoading(id);
+    try {
+      await reopenSubmission(id);
+      alert('Submission reopened. The student can now submit again from their open exam tab (no refresh!).');
+      fetch();
+    } catch (err: any) {
+      setError(err.message || 'Failed to reopen submission');
+    }
+    setConfirmReopen(null);
+    setActionLoading(null);
+  };
+
   const clearSession = async (id: string) => {
     setActionLoading(id);
     try {
@@ -180,7 +194,7 @@ export default function SubmissionList() {
     const q = search.toLowerCase();
     return s.student.name.toLowerCase().includes(q) ||
            s.student.surname.toLowerCase().includes(q) ||
-           s.student.studentId.toLowerCase().includes(q);
+           (s.student.studentId || '').toLowerCase().includes(q);
   });
 
   return (
@@ -307,7 +321,7 @@ export default function SubmissionList() {
                 <div className="flex-1" style={{ minWidth: 200 }}>
                   <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
                     {sub.student.name} {sub.student.surname} 
-                    <span className="text-sm text-secondary" style={{ fontWeight: 500, marginLeft: 8 }}>({sub.student.studentId})</span>
+                    {sub.student.studentId ? <span className="text-sm text-secondary" style={{ fontWeight: 500, marginLeft: 8 }}>({sub.student.studentId})</span> : null}
                   </div>
                   <div className="text-sm text-secondary" style={{ marginTop: 4, fontWeight: 500 }}>
                     {sub.examTitle}
@@ -347,6 +361,9 @@ export default function SubmissionList() {
                     </span>
                   )}
                   <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => { setShowBatchDialog(sub.id); setBatchReassign(sub.batch?.id || 'none'); }} disabled={actionLoading === sub.id} title="Assign Batch">Batch</button>
+                  {sub.status === 'SUBMITTED' && (
+                    <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--amber-600, #d97706)', color: 'var(--amber-700, #b45309)' }} onClick={() => setConfirmReopen(sub.id)} disabled={actionLoading === sub.id} title="Reopen so the student can continue and submit again (keeps answers)">Reopen</button>
+                  )}
                   <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => setConfirmReset(sub.id)} disabled={actionLoading === sub.id} title="Reset submission for retake">Reset</button>
                   <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => clearSession(sub.id)} disabled={actionLoading === sub.id} title="Clear browser lock session">Clear Session</button>
                   <button className="btn btn-sm btn-danger" style={{ border: '1px solid var(--danger-600, #dc2626)' }} onClick={() => setConfirmDelete(sub.id)} disabled={actionLoading === sub.id} title="Permanently delete this submission">Delete</button>
@@ -354,6 +371,22 @@ export default function SubmissionList() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {confirmReopen && (
+          <div className="confirm-overlay" onClick={() => !actionLoading && setConfirmReopen(null)}>
+            <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+              <h3>Reopen Submission</h3>
+              <p>This lets the student continue and submit again. Their <strong>saved answers are kept</strong>, they stay logged in, and a fresh timer starts.</p>
+              <p className="text-sm text-secondary" style={{ marginTop: 8 }}>Tell the student to press <strong>Submit Exam</strong> on their open tab — they must NOT refresh the page.</p>
+              <div className="confirm-actions">
+                <button className="btn btn-ghost" onClick={() => setConfirmReopen(null)} disabled={actionLoading !== null}>Cancel</button>
+                <button className="btn btn-primary" style={{ background: 'var(--amber-600, #d97706)', borderColor: 'var(--amber-600, #d97706)' }} onClick={() => reopen(confirmReopen)} disabled={actionLoading !== null}>
+                  {actionLoading === confirmReopen ? 'Reopening...' : 'Reopen Submission'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
