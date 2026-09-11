@@ -20,7 +20,6 @@ export default function Landing() {
     e.preventDefault();
     if (!name.trim()) { setError('First name is required'); return; }
     if (!surname.trim()) { setError('Surname is required'); return; }
-    if (!studentId.trim()) { setError('SA ID is required'); return; }
     setLoading(true);
     setError('');
     try {
@@ -60,8 +59,8 @@ export default function Landing() {
             </div>
           </div>
           <div className="form-group">
-            <label className="label" htmlFor="sid">SA ID *</label>
-            <input id="sid" className="input" value={studentId} onChange={(e) => setStudentId(e.target.value)} placeholder="Your SA ID number" />
+            <label className="label" htmlFor="sid">ID / Passport number (optional)</label>
+            <input id="sid" className="input" value={studentId} onChange={(e) => setStudentId(e.target.value)} autoCapitalize="characters" autoComplete="off" spellCheck={false} placeholder="e.g. 9202204720082 or A01234567" />
           </div>
           <div className="form-group">
             <label className="label" htmlFor="scell">Cell (optional)</label>
@@ -72,7 +71,7 @@ export default function Landing() {
           </button>
         </form>
         <p className="text-sm text-secondary" style={{ marginTop: 12, textAlign: 'center' }}>
-          No account needed &mdash; your details are saved on first login.
+          No account needed &mdash; your details are saved on first login. An ID or passport number is optional.
         </p>
       </div>
     </div>

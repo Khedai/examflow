@@ -245,7 +245,7 @@ export async function initSchema() {
 
       CREATE TABLE IF NOT EXISTS students (
         id            TEXT PRIMARY KEY,
-        student_id    TEXT NOT NULL UNIQUE,
+        student_id    TEXT UNIQUE,
         name          TEXT NOT NULL,
         surname       TEXT NOT NULL,
         cell          TEXT DEFAULT '',
@@ -289,6 +289,39 @@ export async function initSchema() {
     `;
     _sqliteDb.exec(schema);
     console.log('[db] Schema initialised (SQLite)');
+
+    // Migration: allow students without an ID/passport (student_id becomes nullable).
+    // Existing SQLite DBs created the column as NOT NULL, so rebuild the table if needed.
+    try {
+      const cols: any[] = _sqliteDb.prepare('PRAGMA table_info(students)').all();
+      const idCol = cols.find((c: any) => c.name === 'student_id');
+      if (idCol && idCol.notnull) {
+        console.log('[db] Migrating students.student_id to allow NULL...');
+        _sqliteDb.exec(`
+          PRAGMA foreign_keys = OFF;
+          BEGIN;
+          CREATE TABLE students_new (
+            id            TEXT PRIMARY KEY,
+            student_id    TEXT UNIQUE,
+            name          TEXT NOT NULL,
+            surname       TEXT NOT NULL,
+            cell          TEXT DEFAULT '',
+            session_token TEXT,
+            created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+          );
+          INSERT INTO students_new (id, student_id, name, surname, cell, session_token, created_at)
+            SELECT id, student_id, name, surname, cell, session_token, created_at FROM students;
+          DROP TABLE students;
+          ALTER TABLE students_new RENAME TO students;
+          COMMIT;
+          PRAGMA foreign_keys = ON;
+        `);
+        console.log('[db] students.student_id migration complete');
+      }
+    } catch (e: any) {
+      console.error('[db] students student_id migration failed:', e.message);
+    }
+
     return;
   }
 
@@ -319,7 +352,7 @@ export async function initSchema() {
     )`,
     `CREATE TABLE IF NOT EXISTS students (
       id            TEXT PRIMARY KEY,
-      student_id    TEXT NOT NULL UNIQUE,
+      student_id    TEXT UNIQUE,
       name          TEXT NOT NULL,
       surname       TEXT NOT NULL,
       cell          TEXT DEFAULT '',
@@ -367,6 +400,13 @@ export async function initSchema() {
     await b.query('ALTER TABLE submissions ADD COLUMN IF NOT EXISTS batch_id TEXT REFERENCES batches(id)');
   } catch (e: any) {
     if (!e.message?.includes('already exists')) console.warn('[db] PG ALTER batch_id:', e.message);
+  }
+
+  // Migration: allow students without an ID/passport (student_id becomes nullable)
+  try {
+    await b.query('ALTER TABLE students ALTER COLUMN student_id DROP NOT NULL');
+  } catch (e: any) {
+    if (!e.message?.includes('does not exist')) console.warn('[db] PG DROP NOT NULL student_id:', e.message);
   }
 }
 

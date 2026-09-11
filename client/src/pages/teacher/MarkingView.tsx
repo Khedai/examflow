@@ -109,7 +109,7 @@ export default function MarkingView() {
           <div className="marking-student-info">
             <h2>{sub.student?.name} {sub.student?.surname}</h2>
             <p className="text-secondary" style={{ marginTop: 4, fontWeight: 500 }}>
-              ID: {sub.student?.studentId} &middot; Exam: {sub.examTitle}
+              {sub.student?.studentId ? <>ID / Passport: {sub.student.studentId} &middot; </> : null}Exam: {sub.examTitle}
             </p>
             <div className="text-sm" style={{ marginTop: 10, display: 'flex', gap: 16, flexWrap: 'wrap', color: 'var(--text-hint)' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>

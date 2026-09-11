@@ -63,7 +63,7 @@ export default function TeacherDashboard() {
                   {pendingSubs.length === 0 ? <div className="empty-state" style={{ border: 'none' }}><p>Nothing to mark right now.</p></div> :
                     pendingSubs.map((sub, index) => (
                       <div key={sub.id} className="dash-exam-card" style={{ border: 'none', borderBottom: index === pendingSubs.length - 1 ? 'none' : '1px solid var(--border-subtle)', borderRadius: 0, margin: 0 }}>
-                        <div className="dash-exam-info"><h3>{sub.student.name} {sub.student.surname}</h3><div className="dash-exam-meta"><span>{sub.student.studentId}</span><span className="badge badge-submitted">SUBMITTED</span></div></div>
+                        <div className="dash-exam-info"><h3>{sub.student.name} {sub.student.surname}</h3><div className="dash-exam-meta">{sub.student.studentId ? <span>{sub.student.studentId}</span> : null}<span className="badge badge-submitted">SUBMITTED</span></div></div>
                         <button className="btn btn-sm btn-primary" onClick={() => navigate(`/teacher/submissions/${sub.id}`)}>Mark</button>
                       </div>
                     ))}

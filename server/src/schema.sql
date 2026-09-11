@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS questions (
 
 CREATE TABLE IF NOT EXISTS students (
   id            TEXT PRIMARY KEY,
-  student_id    TEXT NOT NULL UNIQUE,
+  student_id    TEXT UNIQUE,
   name          TEXT NOT NULL,
   surname       TEXT NOT NULL,
   cell          TEXT DEFAULT '',

@@ -43,25 +43,58 @@ router.post('/login', loginRateLimit, async (req: Request, res: Response) => {
       return res.status(422).json({ error: 'Name is required' });
     if (!surname || typeof surname !== 'string' || surname.trim().length === 0)
       return res.status(422).json({ error: 'Surname is required' });
-    if (!studentId || typeof studentId !== 'string' || studentId.trim().length === 0)
-      return res.status(422).json({ error: 'Student ID is required' });
+
+    // ID/passport is optional. It may be a numeric SA ID or an alphanumeric passport number,
+    // so we accept any string and normalise it (trim + uppercase) before storing.
+    const cleanName = name.trim();
+    const cleanSurname = surname.trim();
+    const cleanCell = typeof cell === 'string' ? cell.trim() : '';
+    const rawId = typeof studentId === 'string' ? studentId.trim() : '';
+    const idNumber = rawId.length > 0 ? rawId.toUpperCase() : null;
 
     const sessionToken = uuidv4();
 
-    const existing = await getOne('SELECT id FROM students WHERE student_id = $1', [studentId.trim()]);
+    // Locate a returning student. Matching by ID/passport is preferred when supplied;
+    // otherwise (or as a fallback) we reconnect them by name + surname.
+    let existing: any = null;
+    if (idNumber) {
+      existing = await getOne(
+        'SELECT id FROM students WHERE LOWER(student_id) = LOWER($1)',
+        [idNumber]
+      );
+      if (!existing) {
+        // The student may have first signed in without an ID — adopt that record.
+        existing = await getOne(
+          `SELECT id FROM students
+           WHERE student_id IS NULL
+             AND LOWER(name) = LOWER($1) AND LOWER(surname) = LOWER($2)
+           ORDER BY created_at DESC LIMIT 1`,
+          [cleanName, cleanSurname]
+        );
+      }
+    } else {
+      existing = await getOne(
+        `SELECT id FROM students
+         WHERE LOWER(name) = LOWER($1) AND LOWER(surname) = LOWER($2)
+         ORDER BY created_at DESC LIMIT 1`,
+        [cleanName, cleanSurname]
+      );
+    }
 
     let student: any;
     if (existing) {
       await query(
-        'UPDATE students SET name=$1, surname=$2, cell=$3, session_token=$4 WHERE id=$5',
-        [name.trim(), surname.trim(), (cell || '').trim(), sessionToken, existing.id]
+        `UPDATE students
+           SET name=$1, surname=$2, cell=$3, session_token=$4, student_id=COALESCE($5, student_id)
+         WHERE id=$6`,
+        [cleanName, cleanSurname, cleanCell, sessionToken, idNumber, existing.id]
       );
       student = await getOne('SELECT * FROM students WHERE id = $1', [existing.id]);
     } else {
       const id = uuidv4();
       await query(
         'INSERT INTO students (id, student_id, name, surname, cell, session_token) VALUES ($1,$2,$3,$4,$5,$6)',
-        [id, studentId.trim(), name.trim(), surname.trim(), (cell || '').trim(), sessionToken]
+        [id, idNumber, cleanName, cleanSurname, cleanCell, sessionToken]
       );
       student = await getOne('SELECT * FROM students WHERE id = $1', [id]);
     }
@@ -70,7 +103,7 @@ router.post('/login', loginRateLimit, async (req: Request, res: Response) => {
       token: sessionToken,
       student: {
         id: student.id,
-        studentId: student.student_id,
+        studentId: student.student_id || '',
         name: student.name,
         surname: student.surname,
         cell: student.cell || '',
@@ -90,7 +123,7 @@ router.get('/me', requireStudent, async (req: Request, res: Response) => {
 
     return res.json({
       id: s.id,
-      studentId: s.student_id,
+      studentId: s.student_id || '',
       name: s.name,
       surname: s.surname,
       cell: s.cell || '',

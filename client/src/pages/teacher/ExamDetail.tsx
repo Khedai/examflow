@@ -123,7 +123,9 @@ export default function ExamDetail() {
                 <div key={s.id} className="submission-row" style={{ padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
                   <div className="flex-1">
                     <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{s.student.name} {s.student.surname}</div>
-                    <div className="text-sm text-secondary" style={{ marginTop: 2 }}>ID: {s.student.studentId}</div>
+                    {s.student.studentId ? (
+                      <div className="text-sm text-secondary" style={{ marginTop: 2 }}>ID / Passport: {s.student.studentId}</div>
+                    ) : null}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                     <span className={`badge ${s.status === 'SUBMITTED' ? 'badge-submitted' : s.status === 'MARKED' ? 'badge-marked' : 'badge-started'}`}>

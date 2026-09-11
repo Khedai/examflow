@@ -30,7 +30,9 @@ export default function StudentDashboard() {
       <div className="page-header" style={{ background: 'var(--bg-primary)', padding: '1.5rem 2rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-sm)', marginBottom: '2rem' }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700 }}>Welcome, {student?.name}!</h1>
-          <p className="text-secondary" style={{ fontSize: 14, marginTop: 4 }}>SA ID: <code style={{ background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: 4, fontFamily: 'monospace' }}>{student?.studentId}</code></p>
+          {student?.studentId ? (
+            <p className="text-secondary" style={{ fontSize: 14, marginTop: 4 }}>ID / Passport: <code style={{ background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: 4, fontFamily: 'monospace' }}>{student.studentId}</code></p>
+          ) : null}
         </div>
         <button className="btn btn-ghost btn-sm" onClick={() => { logout(); navigate('/'); }} style={{ border: '1px solid var(--border-medium)' }}>Logout</button>
       </div>
