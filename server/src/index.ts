@@ -67,21 +67,34 @@ async function start() {
   await seed();
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  // Root probe: some platforms (Render) health-check "/" by default. Answer it with a
+  // cheap 200 so an instance is never flagged unhealthy / restarted just because "/" 404s.
+  app.get('/', (_req, res) => res.json({ ok: true, service: 'examflow-api' }));
 
   app.use(errorHandler);
 
   const PORT = Number(process.env.PORT) || 4000;
   const server = app.listen(PORT, () => console.log(`ExamFlow server running on :${PORT}`));
 
-  // Graceful shutdown
-  const gracefulShutdown = async () => {
-    console.log('[server] Received shutdown signal');
-    server.close();
+  // Graceful shutdown: stop accepting new connections and let in-flight requests finish
+  // (e.g. a student's answer save during a Render redeploy) before closing the DB pool.
+  // Without draining, a mid-deploy SIGTERM can cut off the very saves this app protects.
+  let shuttingDown = false;
+  const gracefulShutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[server] Received shutdown signal (${signal})`);
+    // Drop idle keep-alive sockets immediately; wait (up to 10s) for in-flight ones to drain.
+    server.closeIdleConnections?.();
+    await Promise.race([
+      new Promise<void>((resolve) => server.close(() => resolve())),
+      new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+    ]);
     await shutdown();
     process.exit(0);
   };
-  process.on('SIGTERM', gracefulShutdown);
-  process.on('SIGINT', gracefulShutdown);
+  process.on('SIGTERM', () => { void gracefulShutdown('SIGTERM'); });
+  process.on('SIGINT', () => { void gracefulShutdown('SIGINT'); });
 
   // Cleanup stale sessions every hour
   setInterval(() => { cleanupStaleSessions(); }, 60 * 60 * 1000).unref();
