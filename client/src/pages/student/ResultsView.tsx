@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getResult } from '../../api';
+import BrandBar from '../../components/BrandBar';
 
 interface ResultAnswer {
   questionId: string;
@@ -31,11 +32,9 @@ export default function ResultsView() {
   if (result.status === 'SUBMITTED') {
     return (
       <div className="result-container" style={{ textAlign: 'center', maxWidth: 600 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 32 }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 60, width: 160, maxWidth: '100%', objectFit: 'contain' }} />
-        </div>
+        <BrandBar size="lg" centered />
         <div className="card" style={{ padding: '2.5rem 2rem' }}>
-          <div className="landing-card-icon" style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
+          <div style={{ marginBottom: 16 }}><span className="badge badge-marked" style={{ fontSize: 13, padding: '6px 16px' }}>Submitted</span></div>
           <h1 style={{ fontSize: 24, marginBottom: 8 }}>Exam Submitted Successfully</h1>
           <p className="text-secondary" style={{ marginBottom: 20 }}>Your answers have been securely submitted and are now awaiting marking by the teacher.</p>
           {result.startedAt && (
@@ -57,11 +56,9 @@ export default function ResultsView() {
   if (!result.published) {
     return (
       <div className="result-container" style={{ textAlign: 'center', maxWidth: 600 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 32 }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 60, width: 160, maxWidth: '100%', objectFit: 'contain' }} />
-        </div>
+        <BrandBar size="lg" centered />
         <div className="card" style={{ padding: '2.5rem 2rem' }}>
-          <div className="landing-card-icon" style={{ fontSize: 64, marginBottom: 16 }}>🔒</div>
+          <div style={{ marginBottom: 16 }}><span className="badge badge-submitted" style={{ fontSize: 13, padding: '6px 16px' }}>Awaiting release</span></div>
           <h1 style={{ fontSize: 24, marginBottom: 8 }}>Results Pending Release</h1>
           <p className="text-secondary" style={{ marginBottom: 24 }}>Your exam has been marked. The results will be visible here once released by your teacher.</p>
           <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => navigate('/student')}>Back to Dashboard</button>
@@ -81,9 +78,7 @@ export default function ResultsView() {
 
   return (
     <div className="result-container" style={{ paddingBottom: '4rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 32 }}>
-        <img src="/logo.png" alt="Logo" style={{ height: 50, width: 140, maxWidth: '100%', objectFit: 'contain' }} />
-      </div>
+      <BrandBar centered />
       <div className="card" style={{ padding: '2.5rem 2rem', marginBottom: '2rem', textAlign: 'center' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>{result.examTitle || 'Exam Results'}</h1>
         <div className="score-large" style={{ margin: '1rem 0' }}>{score}<span> / {totalMax} pts</span></div>

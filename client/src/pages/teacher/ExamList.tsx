@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getExams, deleteExam, togglePublish } from '../../api';
 import type { Exam } from '../../types';
 import TeacherSidebar from '../../components/TeacherSidebar';
+import BrandBar from '../../components/BrandBar';
 
 export default function ExamList() {
   const navigate = useNavigate();
@@ -36,14 +37,12 @@ export default function ExamList() {
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <TeacherSidebar />
       <main className="main-content">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 50, width: 140, maxWidth: '100%', objectFit: 'contain' }} />
-        </div>
+        <BrandBar />
         <div className="page-header">
           <h1>Exams</h1>
           <button className="btn btn-primary" onClick={() => navigate('/teacher/exams/new')}>+ Create Exam</button>
         </div>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <div className="error-banner" role="alert">{error}</div>}
         <div className="form-group" style={{ marginBottom: '1.5rem' }}>
           <input className="input" type="text" placeholder="Search exams by title..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search exams" />
         </div>
@@ -63,8 +62,8 @@ export default function ExamList() {
                   </div>
                   <div className="text-sm text-secondary" style={{ marginBottom: 6 }}>{exam.description || 'No description provided.'}</div>
                   <div className="text-sm text-secondary" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontWeight: 500 }}>
-                    <span>📝 {exam.questions.length} questions</span>
-                    <span>⏱️ {exam.duration} mins</span>
+                    <span>{exam.questions.length} questions</span>
+                    <span>{exam.duration} mins</span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>

@@ -26,9 +26,62 @@ function getHeaders(extra?: Record<string, string>): HeadersInit {
   return headers;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+// ── Silent session recovery ────────────────────────────────────────────────
+// A student's session only lives in the `students.session_token` column, so a second login
+// (another device/tab), a teacher Reset, or the hourly stale-session sweep can invalidate it
+// mid-exam. That 401 used to wipe localStorage and hard-navigate to the landing page — which is
+// exactly how students got "sent back to Question 1" with their typing gone. Instead we quietly
+// sign the student back in with the details captured at their first login and replay the
+// request, so an exam in progress is never interrupted.
+
+function storedStudent(): Student | null {
+  const raw = localStorage.getItem('student_data');
+  if (!raw) return null;
+  try {
+    const s = JSON.parse(raw) as Student;
+    return s && s.name && s.surname ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+async function reAuthStudent(): Promise<boolean> {
+  const s = storedStudent();
+  if (!s) return false;
+  try {
+    const res = await fetch(`${BASE}/api/students/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: s.name,
+        surname: s.surname,
+        studentId: s.studentId || '',
+        cell: s.cell || '',
+      }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (!data?.token) return false;
+    localStorage.setItem('student_token', data.token);
+    if (data.student) localStorage.setItem('student_data', JSON.stringify(data.student));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+type RawResponse = { res: Response; data: any };
+
+async function send(
+  method: string,
+  path: string,
+  body?: unknown,
+  keepalive = false
+): Promise<RawResponse> {
+  // keepalive requests are fired while the page is unloading (refresh/close), so they must not
+  // be aborted by our timeout and must never trigger a redirect — the browser is already leaving.
+  const controller = keepalive ? null : new AbortController();
+  const timeoutId = controller ? setTimeout(() => controller.abort(), TIMEOUT_MS) : null;
 
   let res: Response;
   try {
@@ -36,20 +89,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       method,
       headers: getHeaders(),
       body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
+      signal: controller ? controller.signal : undefined,
+      keepalive,
     });
   } catch (err: any) {
-    clearTimeout(timeoutId);
+    if (timeoutId !== null) clearTimeout(timeoutId);
     if (err?.name === 'AbortError') {
       throw new Error('The server took too long to respond. Please try again.');
     }
     throw new Error('Unable to reach the server. Please check your internet connection and try again.');
   } finally {
-    clearTimeout(timeoutId);
-  }
-
-  if (res.status === 401) {
-    redirectToLanding();
+    if (timeoutId !== null) clearTimeout(timeoutId);
   }
 
   const text = await res.text();
@@ -61,14 +111,69 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       data = {};
     }
   }
+  return { res, data };
+}
 
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
-  return data as T;
+function unwrap<T>(r: RawResponse): T {
+  if (!r.res.ok) throw new Error(r.data?.error || `Request failed (${r.res.status})`);
+  return r.data as T;
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts?: { keepalive?: boolean }
+): Promise<T> {
+  const keepalive = opts?.keepalive === true;
+  const first = await send(method, path, body, keepalive);
+
+  // Login endpoints must never redirect: a wrong password is a local form error, not an
+  // expired session. (Redirecting here used to bounce teachers to the landing page on a typo.)
+  if (
+    first.res.status === 401 &&
+    !keepalive &&
+    path !== '/api/students/login' &&
+    path !== '/api/teacher/login'
+  ) {
+    if (await reAuthStudent()) return unwrap<T>(await send(method, path, body));
+    redirectToLanding();
+  }
+
+  return unwrap<T>(first);
+}
+
+// ── Cold-start warmup ──────────────────────────────────────────────────────
+// The API sleeps when idle, so the first request after a lull can take tens of seconds
+// while the host wakes the server and its DB pool. Login pages fire this on mount —
+// by the time the password is typed and submitted, the server is already awake and the
+// sign-in itself is a fast, DB-free password check + JWT sign.
+let warmupFired = false;
+export function warmServer(): void {
+  if (warmupFired) return;
+  warmupFired = true;
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 10000);
+  fetch(`${BASE}/api/health`, { signal: controller.signal })
+    .catch(() => {
+      /* best effort — the real request retries anyway */
+    })
+    .finally(() => clearTimeout(t));
 }
 
 // Teacher
-export const teacherLogin = (password: string) =>
-  request<{ token: string }>('POST', '/api/teacher/login', { password });
+export const teacherLogin = async (password: string) => {
+  try {
+    return await request<{ token: string }>('POST', '/api/teacher/login', { password });
+  } catch (err: any) {
+    // A cold start can still beat the warmup ping: one immediate retry turns that slow
+    // first attempt into a fast success instead of an error the teacher must retry by hand.
+    if (/took too long|Unable to reach/i.test(err?.message || '')) {
+      return request<{ token: string }>('POST', '/api/teacher/login', { password });
+    }
+    throw err;
+  }
+};
 
 export const getStats = () =>
   request<{ totalExams: number; pending: number; marked: number; inProgress: number }>(
@@ -137,13 +242,30 @@ export const startExam = (examId: string) =>
     answers: { questionId: string; answerText: string }[];
   }>('POST', '/api/submissions/start', { examId });
 
+// `clientSavedAt` lets the server reject stale writes: every save carries the moment the
+// snapshot was taken, and the server only overwrites an answer that was written earlier.
+// That makes a second (older) tab or a replayed request unable to clobber newer answers.
 export const saveAnswers = (
   submissionId: string,
   answers: { questionId: string; answerText: string }[]
 ) =>
   request<{ saved: boolean }>('PUT', `/api/submissions/${submissionId}/answers`, {
     answers,
+    clientSavedAt: Date.now(),
   });
+
+// Fire-and-forget save used while the page is unloading (refresh/close/tab switch).
+// `keepalive` lets the browser finish the request after the page is gone.
+export const saveAnswersKeepalive = (
+  submissionId: string,
+  answers: { questionId: string; answerText: string }[]
+) =>
+  request<{ saved: boolean }>(
+    'PUT',
+    `/api/submissions/${submissionId}/answers`,
+    { answers, clientSavedAt: Date.now() },
+    { keepalive: true }
+  );
 
 export const submitExam = (submissionId: string) =>
   request<{ submittedAt: string }>(

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { getExam, getSubmissions, togglePublish, deleteSubmission } from '../../api';
 import type { Exam, Submission } from '../../types';
 import TeacherSidebar from '../../components/TeacherSidebar';
+import BrandBar from '../../components/BrandBar';
 
 export default function ExamDetail() {
   const navigate = useNavigate();
@@ -56,11 +57,9 @@ export default function ExamDetail() {
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <TeacherSidebar />
       <main className="main-content">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 50, width: 140, maxWidth: '100%', objectFit: 'contain' }} />
-        </div>
+        <BrandBar />
         <button className="btn btn-ghost btn-sm mb-2" style={{ border: '1px solid var(--border-medium)' }} onClick={() => navigate('/teacher/exams')}>&larr; Back to Exams</button>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <div className="error-banner" role="alert">{error}</div>}
         
         <div className="page-header" style={{ marginTop: 12 }}>
           <div>

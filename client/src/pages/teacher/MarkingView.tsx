@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { getSubmission, finalizeMarking } from '../../api';
 import type { FinalizeMarkingBody } from '../../types';
 import TeacherSidebar from '../../components/TeacherSidebar';
+import BrandBar from '../../components/BrandBar';
 
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return '—';
@@ -99,11 +100,9 @@ export default function MarkingView() {
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <TeacherSidebar />
       <main className="main-content" style={{ maxWidth: 1000 }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 50, width: 140, maxWidth: '100%', objectFit: 'contain' }} />
-        </div>
+        <BrandBar />
         <button className="btn btn-ghost btn-sm mb-2" style={{ border: '1px solid var(--border-medium)' }} onClick={() => navigate('/teacher/submissions')}>&larr; Back to Submissions</button>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <div className="error-banner" role="alert">{error}</div>}
         
         <div className="marking-header">
           <div className="marking-student-info">
@@ -113,16 +112,16 @@ export default function MarkingView() {
             </p>
             <div className="text-sm" style={{ marginTop: 10, display: 'flex', gap: 16, flexWrap: 'wrap', color: 'var(--text-hint)' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                ▶ Started: <strong style={{ color: 'var(--text-secondary)' }}>{formatDateTime(sub.startedAt)}</strong>
+                Started: <strong style={{ color: 'var(--text-secondary)' }}>{formatDateTime(sub.startedAt)}</strong>
               </span>
               {sub.submittedAt && (
                 <>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    ✔ Submitted: <strong style={{ color: 'var(--text-secondary)' }}>{formatDateTime(sub.submittedAt)}</strong>
+                    Submitted: <strong style={{ color: 'var(--text-secondary)' }}>{formatDateTime(sub.submittedAt)}</strong>
                   </span>
                   {formatTook(sub.startedAt, sub.submittedAt) && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--teal-800)' }}>
-                      ⏱️ Took: <strong>{formatTook(sub.startedAt, sub.submittedAt)}</strong>
+                      Time taken: <strong>{formatTook(sub.startedAt, sub.submittedAt)}</strong>
                     </span>
                   )}
                 </>
@@ -137,7 +136,7 @@ export default function MarkingView() {
               <div className="marking-score-label">Running Score</div>
             </div>
             <button className="btn btn-primary" onClick={() => doFinalize()} disabled={saving}>
-              {saving ? <span className="spinner" /> : 'Finalize Grade'}
+              {saving ? (<><span className="spinner" aria-hidden="true" /> Saving…</>) : 'Finalize Grade'}
             </button>
           </div>
         </div>
@@ -195,7 +194,7 @@ export default function MarkingView() {
         
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2rem' }}>
           <button className="btn btn-primary" onClick={() => doFinalize()} disabled={saving}>
-            {saving ? <span className="spinner" /> : 'Finalize Grade & Submit'}
+            {saving ? (<><span className="spinner" aria-hidden="true" /> Saving…</>) : 'Finalize Grade & Submit'}
           </button>
         </div>
 

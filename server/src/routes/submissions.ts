@@ -488,11 +488,20 @@ router.post('/start', requireStudent, async (req: Request, res: Response) => {
 });
 
 // PUT /api/submissions/:id/answers (student)
+// Saves the student's whole answer map. The client sends `clientSavedAt` (epoch ms of the
+// snapshot it is pushing); an answer is only overwritten when that snapshot is newer than what
+// is already stored. The write is therefore monotonic, so a second/older tab — which holds a
+// stale copy of the answers — can no longer wipe work that was saved after it loaded.
 router.put('/:id/answers', requireStudent, async (req: Request, res: Response) => {
   try {
     const { id } = req.params as { id: string };
-    const { answers } = req.body;
+    const { answers, clientSavedAt } = req.body;
     const studentId = req.studentId!;
+
+    if (!Array.isArray(answers)) return res.status(422).json({ error: 'answers must be an array' });
+    if (answers.length > 200) return res.status(422).json({ error: 'Too many answers in one request' });
+
+    const savedAt = Number(clientSavedAt) > 0 ? Math.trunc(Number(clientSavedAt)) : Date.now();
 
     const sub = await getOne('SELECT * FROM submissions WHERE id = $1 AND student_id = $2', [id, studentId]);
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
@@ -501,9 +510,11 @@ router.put('/:id/answers', requireStudent, async (req: Request, res: Response) =
     await transaction(async (client) => {
       for (const ans of answers) {
         await client.query(`
-          INSERT INTO answers (id, submission_id, question_id, answer_text) VALUES ($1,$2,$3,$4)
-          ON CONFLICT(submission_id, question_id) DO UPDATE SET answer_text = EXCLUDED.answer_text
-        `, [uuidv4(), id, ans.questionId, ans.answerText]);
+          INSERT INTO answers (id, submission_id, question_id, answer_text, updated_at) VALUES ($1,$2,$3,$4,$5)
+          ON CONFLICT(submission_id, question_id) DO UPDATE
+            SET answer_text = EXCLUDED.answer_text, updated_at = EXCLUDED.updated_at
+            WHERE answers.updated_at IS NULL OR answers.updated_at <= EXCLUDED.updated_at
+        `, [uuidv4(), id, ans.questionId, ans.answerText, savedAt]);
       }
     });
 

@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getSubmissions, resetSubmission, reopenSubmission, clearStudentSession, deleteSubmission, getBatches, assignBatch, createBatch, updateBatch, deleteBatch } from '../../api';
 import type { Submission, Batch } from '../../types';
 import TeacherSidebar from '../../components/TeacherSidebar';
+import BrandBar from '../../components/BrandBar';
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return '—';
@@ -38,6 +39,13 @@ function liveElapsed(startedAt: string | null | undefined, durationMin?: number)
   return `${h}h ${m}m`;
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  ALL: 'All',
+  STARTED: 'In progress',
+  SUBMITTED: 'Submitted',
+  MARKED: 'Marked',
+};
+
 export default function SubmissionList() {
   const navigate = useNavigate();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
@@ -47,6 +55,7 @@ export default function SubmissionList() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [confirmReset, setConfirmReset] = useState<string | null>(null);
   const [confirmReopen, setConfirmReopen] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -58,13 +67,12 @@ export default function SubmissionList() {
   const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
   const [editingBatchName, setEditingBatchName] = useState('');
 
-  const fetch = async () => {
+  const loadData = async () => {
     try {
       setError('');
-      const p: any = {};
-      if (filter !== 'ALL') p.status = filter;
-      if (selectedBatch) p.batchId = selectedBatch;
-      setSubmissions(await getSubmissions(p));
+      const [subs, batchList] = await Promise.all([getSubmissions(), getBatches()]);
+      setSubmissions(subs);
+      setBatches(batchList);
     } catch (err: any) {
       setError(err.message || 'Failed to fetch submissions');
     } finally {
@@ -72,33 +80,28 @@ export default function SubmissionList() {
     }
   };
 
-  const fetchBatches = async () => {
-    try {
-      setBatches(await getBatches());
-    } catch {}
-  };
-
   useEffect(() => {
-    fetch();
-    fetchBatches();
-  }, [filter, selectedBatch]);
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Refresh whenever the list contains in-progress submissions so "elapsed" stays current
   useEffect(() => {
     if (!submissions.some((s) => s.status === 'STARTED')) return;
     const id = setInterval(() => {
-      fetch();
+      loadData();
     }, 30000);
     return () => clearInterval(id);
-  }, [submissions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submissions.some((s) => s.status === 'STARTED')]);
 
   const handleBatchAssign = async () => {
     if (!showBatchDialog || !batchReassign) return;
     setActionLoading(showBatchDialog);
     try {
-      await assignBatch(showBatchDialog, batchReassign === 'none' ? null as any : batchReassign);
-      fetch();
-      fetchBatches();
+      await assignBatch(showBatchDialog, batchReassign === 'none' ? null : batchReassign);
+      setNotice('Batch assignment saved.');
+      loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to assign batch');
     }
@@ -111,7 +114,7 @@ export default function SubmissionList() {
     try {
       await createBatch(newBatchName.trim());
       setNewBatchName('');
-      await fetchBatches();
+      loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to create batch');
     }
@@ -123,7 +126,7 @@ export default function SubmissionList() {
       await updateBatch(id, name.trim());
       setEditingBatchId(null);
       setEditingBatchName('');
-      await fetchBatches();
+      loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to rename batch');
     }
@@ -132,7 +135,7 @@ export default function SubmissionList() {
   const handleDeleteBatch = async (id: string) => {
     try {
       await deleteBatch(id);
-      await fetchBatches();
+      loadData();
       if (selectedBatch === id) setSelectedBatch('');
     } catch (err: any) {
       setError(err.message || 'Failed to delete batch');
@@ -145,7 +148,8 @@ export default function SubmissionList() {
     setActionLoading(id);
     try {
       await resetSubmission(id);
-      fetch();
+      setNotice('Submission reset. The student can retake the exam.');
+      loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to reset submission');
     }
@@ -157,8 +161,8 @@ export default function SubmissionList() {
     setActionLoading(id);
     try {
       await reopenSubmission(id);
-      alert('Submission reopened. The student can now submit again from their open exam tab (no refresh!).');
-      fetch();
+      setNotice('Submission reopened. The student can submit again from their open exam tab (no refresh needed).');
+      loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to reopen submission');
     }
@@ -170,7 +174,7 @@ export default function SubmissionList() {
     setActionLoading(id);
     try {
       await clearStudentSession(id);
-      alert('Session cleared. Student will need to sign in again.');
+      setNotice('Session cleared. The student will need to sign in again.');
     } catch (err: any) {
       setError(err.message || 'Failed to clear session');
     }
@@ -182,29 +186,39 @@ export default function SubmissionList() {
     try {
       await deleteSubmission(id);
       setConfirmDelete(null);
-      fetch();
+      setNotice('Submission deleted.');
+      loadData();
     } catch (err: any) {
       setError(err.message || 'Failed to delete submission');
     }
     setActionLoading(null);
   };
 
-  const filtered = submissions.filter((s) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return s.student.name.toLowerCase().includes(q) ||
-           s.student.surname.toLowerCase().includes(q) ||
-           (s.student.studentId || '').toLowerCase().includes(q);
-  });
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return submissions.filter((s) => {
+      if (filter !== 'ALL' && s.status !== filter) return false;
+      if (selectedBatch && s.batch?.id !== selectedBatch) return false;
+      if (!q) return true;
+      return s.student.name.toLowerCase().includes(q) ||
+             s.student.surname.toLowerCase().includes(q) ||
+             (s.student.studentId || '').toLowerCase().includes(q);
+    });
+  }, [submissions, filter, selectedBatch, search]);
+
+  const countFor = (status: string) =>
+    status === 'ALL' ? submissions.length : submissions.filter((s) => s.status === status).length;
+
+  const closeRowMenu = (e: React.SyntheticEvent) => {
+    (e.target as HTMLElement).closest('details')?.removeAttribute('open');
+  };
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <TeacherSidebar />
       <main className="main-content">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 50, width: 140, maxWidth: '100%', objectFit: 'contain' }} />
-        </div>
-        
+        <BrandBar />
+
         <div className="page-header">
           <h1>Student Submissions</h1>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -241,7 +255,8 @@ export default function SubmissionList() {
           </div>
         )}
 
-        {error && <div className="error-banner">{error}</div>}
+        {error && <div className="error-banner" role="alert">{error}</div>}
+        {notice && <div className="success-banner" role="status">{notice}</div>}
 
         {/* Batch Manager Panel */}
         {showBatchManager && (
@@ -251,10 +266,10 @@ export default function SubmissionList() {
               New submissions are automatically assigned to the newest active batch. Each batch shows its progress at a glance.
             </p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-              <input className="input" style={{ flex: 1 }} placeholder="New batch name (e.g. Test Group A)" value={newBatchName} onChange={(e) => setNewBatchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateBatch()} />
+              <input className="input" style={{ flex: 1 }} placeholder="New batch name (e.g. Test Group A)" value={newBatchName} onChange={(e) => setNewBatchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateBatch()} aria-label="New batch name" />
               <button className="btn btn-primary" style={{ padding: '8px 20px', minHeight: 44 }} onClick={handleCreateBatch}>Create Batch</button>
             </div>
-            
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               {batches.length === 0 ? (
                 <p className="text-sm text-secondary">No batches created yet.</p>
@@ -265,16 +280,16 @@ export default function SubmissionList() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         {i === 0 && <span className="badge badge-published" style={{ fontSize: 10 }}>ACTIVE</span>}
                         {editingBatchId === b.id ? (
-                          <input className="input" style={{ flex: 1, padding: '6px 12px', minHeight: 36, fontSize: 13 }} value={editingBatchName} onChange={(e) => setEditingBatchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRenameBatch(b.id, editingBatchName)} autoFocus />
+                          <input className="input" style={{ flex: 1, padding: '6px 12px', minHeight: 36, fontSize: 13 }} value={editingBatchName} onChange={(e) => setEditingBatchName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleRenameBatch(b.id, editingBatchName)} autoFocus aria-label="Batch name" />
                         ) : (
                           <span style={{ fontSize: 14, fontWeight: 600 }}>{b.name}</span>
                         )}
                       </div>
                       <div className="text-sm text-secondary" style={{ marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap', fontWeight: 500 }}>
-                        <span>👥 <strong style={{ color: 'var(--text-primary)' }}>{b.studentCount ?? 0}</strong> students</span>
-                        <span style={{ color: 'var(--amber-600)' }}>▶ {b.startedCount ?? 0} in progress</span>
-                        <span style={{ color: '#1e40af' }}>✓ {b.submittedCount ?? 0} submitted</span>
-                        <span style={{ color: 'var(--teal-600)' }}>★ {b.markedCount ?? 0} marked</span>
+                        <span><strong style={{ color: 'var(--text-primary)' }}>{b.studentCount ?? 0}</strong> students</span>
+                        <span style={{ color: 'var(--amber-600)' }}>{b.startedCount ?? 0} in progress</span>
+                        <span style={{ color: '#1e40af' }}>{b.submittedCount ?? 0} submitted</span>
+                        <span style={{ color: 'var(--teal-600)' }}>{b.markedCount ?? 0} marked</span>
                       </div>
                     </div>
                     {editingBatchId === b.id ? (
@@ -296,9 +311,9 @@ export default function SubmissionList() {
         )}
 
         <div style={{ display: 'flex', gap: 10, marginBottom: '2rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-secondary)', padding: 4, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-secondary)', padding: 4, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }} role="tablist" aria-label="Filter by status">
             {['ALL', 'STARTED', 'SUBMITTED', 'MARKED'].map((status) => (
-              <button key={status} className={`btn btn-sm ${filter === status ? 'btn-primary' : 'btn-ghost'}`} style={{ minHeight: 36, border: 'none', boxShadow: 'none' }} onClick={() => setFilter(status)}>{status}</button>
+              <button key={status} role="tab" aria-selected={filter === status} className={`btn btn-sm ${filter === status ? 'btn-primary' : 'btn-ghost'}`} style={{ minHeight: 36, border: 'none', boxShadow: 'none' }} onClick={() => setFilter(status)}>{STATUS_LABEL[status]} ({countFor(status)})</button>
             ))}
           </div>
           {batches.length > 0 && (
@@ -311,16 +326,20 @@ export default function SubmissionList() {
         </div>
 
         {loading ? (
-          <div className="loading-center"><span className="spinner" /></div>
+          <div aria-label="Loading submissions">
+            <div className="skeleton-row" />
+            <div className="skeleton-row" />
+            <div className="skeleton-row" />
+          </div>
         ) : filtered.length === 0 ? (
-          <div className="empty-state"><p>{search ? 'No student records match your query.' : 'No student submissions found.'}</p></div>
+          <div className="empty-state"><p>{search || filter !== 'ALL' || selectedBatch ? 'No submissions match these filters.' : 'No student submissions found.'}</p></div>
         ) : (
           <div className="card" style={{ padding: 0 }}>
             {filtered.map((sub) => (
               <div key={sub.id} className="submission-row" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
                 <div className="flex-1" style={{ minWidth: 200 }}>
                   <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
-                    {sub.student.name} {sub.student.surname} 
+                    {sub.student.name} {sub.student.surname}
                     {sub.student.studentId ? <span className="text-sm text-secondary" style={{ fontWeight: 500, marginLeft: 8 }}>({sub.student.studentId})</span> : null}
                   </div>
                   <div className="text-sm text-secondary" style={{ marginTop: 4, fontWeight: 500 }}>
@@ -330,21 +349,21 @@ export default function SubmissionList() {
                   {/* Time tracking block */}
                   <div className="text-sm" style={{ marginTop: 6, display: 'flex', gap: 14, flexWrap: 'wrap', color: 'var(--text-hint)' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      ▶ Started: <strong style={{ color: 'var(--text-secondary)' }}>{formatDate(sub.startedAt)}</strong>
+                      Started: <strong style={{ color: 'var(--text-secondary)' }}>{formatDate(sub.startedAt)}</strong>
                     </span>
                     {sub.status === 'STARTED' && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--amber-600)' }}>
-                        ⏱️ Elapsed: <strong>{liveElapsed(sub.startedAt, sub.examDuration)}</strong>
+                        Elapsed: <strong>{liveElapsed(sub.startedAt, sub.examDuration)}</strong>
                       </span>
                     )}
                     {(sub.status === 'SUBMITTED' || sub.status === 'MARKED') && (
                       <>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          ✔ Submitted: <strong style={{ color: 'var(--text-secondary)' }}>{formatDate(sub.submittedAt)}</strong>
+                          Submitted: <strong style={{ color: 'var(--text-secondary)' }}>{formatDate(sub.submittedAt)}</strong>
                         </span>
                         {formatDuration(sub.startedAt, sub.submittedAt) && (
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--teal-800)' }}>
-                            ⏱️ Took: <strong>{formatDuration(sub.startedAt, sub.submittedAt)}</strong>
+                            Time taken: <strong>{formatDuration(sub.startedAt, sub.submittedAt)}</strong>
                           </span>
                         )}
                       </>
@@ -353,7 +372,7 @@ export default function SubmissionList() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <span className={`badge ${sub.status === 'SUBMITTED' ? 'badge-submitted' : sub.status === 'MARKED' ? 'badge-marked' : 'badge-started'}`}>
-                    {sub.status}
+                    {STATUS_LABEL[sub.status] ?? sub.status}
                   </span>
                   {sub.score != null && (
                     <span className="text-sm" style={{ fontWeight: 700, color: 'var(--purple-600)' }}>
@@ -361,13 +380,18 @@ export default function SubmissionList() {
                     </span>
                   )}
                   <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => { setShowBatchDialog(sub.id); setBatchReassign(sub.batch?.id || 'none'); }} disabled={actionLoading === sub.id} title="Assign Batch">Batch</button>
-                  {sub.status === 'SUBMITTED' && (
-                    <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--amber-600, #d97706)', color: 'var(--amber-700, #b45309)' }} onClick={() => setConfirmReopen(sub.id)} disabled={actionLoading === sub.id} title="Reopen so the student can continue and submit again (keeps answers)">Reopen</button>
-                  )}
-                  <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => setConfirmReset(sub.id)} disabled={actionLoading === sub.id} title="Reset submission for retake">Reset</button>
-                  <button className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => clearSession(sub.id)} disabled={actionLoading === sub.id} title="Clear browser lock session">Clear Session</button>
-                  <button className="btn btn-sm btn-danger" style={{ border: '1px solid var(--danger-600, #dc2626)' }} onClick={() => setConfirmDelete(sub.id)} disabled={actionLoading === sub.id} title="Permanently delete this submission">Delete</button>
                   <button className="btn btn-sm btn-primary" onClick={() => navigate(`/teacher/submissions/${sub.id}`)}>{sub.status === 'MARKED' ? 'Review' : 'Grade'}</button>
+                  <details className="row-menu">
+                    <summary className="btn btn-sm btn-ghost" style={{ border: '1px solid var(--border-medium)' }} aria-label="More actions">More ▾</summary>
+                    <div className="row-menu-items" role="menu">
+                      {sub.status === 'SUBMITTED' && (
+                        <button role="menuitem" onClick={(e) => { closeRowMenu(e); setConfirmReopen(sub.id); }} disabled={actionLoading === sub.id} title="Reopen so the student can continue and submit again (keeps answers)">Reopen</button>
+                      )}
+                      <button role="menuitem" onClick={(e) => { closeRowMenu(e); setConfirmReset(sub.id); }} disabled={actionLoading === sub.id} title="Reset submission for retake">Reset</button>
+                      <button role="menuitem" onClick={(e) => { closeRowMenu(e); clearSession(sub.id); }} disabled={actionLoading === sub.id} title="Clear browser lock session">Clear session</button>
+                      <button role="menuitem" className="danger" onClick={(e) => { closeRowMenu(e); setConfirmDelete(sub.id); }} disabled={actionLoading === sub.id} title="Permanently delete this submission">Delete</button>
+                    </div>
+                  </details>
                 </div>
               </div>
             ))}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getExams, getSubmissions } from '../../api';
 import type { Exam, Submission } from '../../types';
+import BrandBar from '../../components/BrandBar';
 
 export default function StudentDashboard() {
   const { student, logout } = useAuth();
@@ -23,9 +24,7 @@ export default function StudentDashboard() {
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '2.5rem 1.5rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 32 }}>
-        <img src="/logo.png" alt="Logo" style={{ height: 60, width: 160, maxWidth: '100%', objectFit: 'contain' }} />
-      </div>
+      <BrandBar size="lg" centered />
 
       <div className="page-header" style={{ background: 'var(--bg-primary)', padding: '1.5rem 2rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-sm)', marginBottom: '2rem' }}>
         <div>
@@ -37,7 +36,7 @@ export default function StudentDashboard() {
         <button className="btn btn-ghost btn-sm" onClick={() => { logout(); navigate('/'); }} style={{ border: '1px solid var(--border-medium)' }}>Logout</button>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <div className="error-banner" role="alert">{error}</div>}
 
       <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: '1rem', borderLeft: '4px solid var(--purple-600)', paddingLeft: 10 }}>Your Exams</h2>
 
@@ -64,9 +63,9 @@ export default function StudentDashboard() {
                   </div>
                   <p className="text-sm text-secondary" style={{ marginBottom: 10, lineHeight: 1.5 }}>{exam.description || 'No description provided.'}</p>
                   <div className="text-sm text-secondary" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontWeight: 500 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>📝 {exam.questions.length} Questions</span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>🏆 {totalPoints} Points</span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>⏱️ {exam.duration} Mins</span>
+                    <span>{exam.questions.length} Questions</span>
+                    <span>{totalPoints} Points</span>
+                    <span>{exam.duration} Mins</span>
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center' }}>

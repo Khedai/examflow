@@ -279,6 +279,7 @@ export async function initSchema() {
         answer_text     TEXT DEFAULT '',
         awarded_points  INTEGER,
         feedback        TEXT DEFAULT '',
+        updated_at      INTEGER,
         UNIQUE (submission_id, question_id)
       );
 
@@ -320,6 +321,18 @@ export async function initSchema() {
       }
     } catch (e: any) {
       console.error('[db] students student_id migration failed:', e.message);
+    }
+
+    // Migration: record when each answer was last written, so a stale tab/device can never
+    // overwrite newer answers (clients send `clientSavedAt` with every save).
+    try {
+      const answerCols: any[] = _sqliteDb.prepare('PRAGMA table_info(answers)').all();
+      if (!answerCols.some((c: any) => c.name === 'updated_at')) {
+        _sqliteDb.exec('ALTER TABLE answers ADD COLUMN updated_at INTEGER');
+        console.log('[db] Added answers.updated_at (SQLite)');
+      }
+    } catch (e: any) {
+      console.error('[db] answers.updated_at migration failed:', e.message);
     }
 
     return;
@@ -383,8 +396,11 @@ export async function initSchema() {
       answer_text     TEXT DEFAULT '',
       awarded_points  INTEGER,
       feedback        TEXT DEFAULT '',
+      updated_at      BIGINT,
       UNIQUE (submission_id, question_id)
     )`,
+    // Existing databases predate updated_at — additive and idempotent
+    `ALTER TABLE answers ADD COLUMN IF NOT EXISTS updated_at BIGINT`,
     `CREATE INDEX IF NOT EXISTS idx_questions_exam ON questions(exam_id)`,
     `CREATE INDEX IF NOT EXISTS idx_submissions_exam ON submissions(exam_id)`,
     `CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id)`,

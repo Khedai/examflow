@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getExam, startExam, saveAnswers, submitExam } from '../../api';
+import { getExam, startExam, saveAnswers, saveAnswersKeepalive, submitExam } from '../../api';
+import { readDraft, writeDraft, clearDraft, readPosition, writePosition, clearPosition } from '../../examDraft';
 import type { Exam, Question } from '../../types';
+import BrandBar from '../../components/BrandBar';
 
 export default function ExamTaking() {
   const { examId } = useParams<{ examId: string }>();
@@ -15,13 +17,36 @@ export default function ExamTaking() {
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [saveIndicator, setSaveIndicator] = useState<'idle' | 'saving' | 'saved'>('idle');
+  // 'unsaved' stays on screen until a save actually succeeds — a silent failure is what cost
+  // students their work, so the state is now visible and the loop keeps retrying.
+  const [saveIndicator, setSaveIndicator] = useState<'idle' | 'saving' | 'saved' | 'unsaved'>('idle');
+  const [recoveredCount, setRecoveredCount] = useState(0);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const answersRef = useRef(answers);
   const submittedRef = useRef(false);
+  const dirtyRef = useRef(false);      // something changed since the last successful save
+  const lastSavedJsonRef = useRef(''); // exactly what the server is known to hold
   answersRef.current = answers;
+
+  // Mirror of what is on screen, written to localStorage on every change. Costs nothing and is
+  // the only copy that survives a lost connection, a crash or a forced re-login.
+  const persistDraft = useCallback((submissionIdValue: string) => {
+    if (!examId) return;
+    writeDraft(examId, submissionIdValue, answersRef.current);
+  }, [examId]);
+
+  // Only ever send questions that belong to this exam — a draft left over from an earlier
+  // version of the exam must not make the whole save fail (unknown ids would break the FK).
+  const questionIdsRef = useRef<Set<string>>(new Set());
+  const buildAnswerPayload = () => {
+    const ids = questionIdsRef.current;
+    return Object.entries(answersRef.current)
+      .filter(([questionId]) => ids.size === 0 || ids.has(questionId))
+      .map(([questionId, answerText]) => ({ questionId, answerText }));
+  };
 
   useEffect(() => {
     if (!examId) return;
@@ -29,15 +54,40 @@ export default function ExamTaking() {
       try {
         const examData = await getExam(examId);
         setExam(examData);
+        questionIdsRef.current = new Set((examData.questions || []).map((qq) => qq.id));
+        // Resume on the question she was last on (survives a hard refresh / crash)
+        const maxIdx = Math.max(0, (examData.questions?.length || 1) - 1);
+        setCurrentQ(Math.min(readPosition(examId), maxIdx));
         const startData = await startExam(examId);
         setSubmissionId(startData.submissionId);
         setStartedAt(startData.startedAt);
-        const ansMap: Record<string, string> = {};
-        (startData.answers || []).forEach((a: any) => { ansMap[a.questionId] = a.answerText || ''; });
-        setAnswers(ansMap);
         // Parse as UTC — append Z if missing (fixes SQLite timezone issue)
         const startedAtStr = startData.startedAt.endsWith('Z') ? startData.startedAt : startData.startedAt + 'Z';
         const startTime = new Date(startedAtStr).getTime();
+
+        // ── Reconcile the server copy with the local draft ──
+        // The draft only counts when it belongs to this same attempt and was written after the
+        // server's startedAt — which is how a stale draft from before a teacher Reset is ignored.
+        const serverMap: Record<string, string> = {};
+        (startData.answers || []).forEach((a: any) => { serverMap[a.questionId] = a.answerText || ''; });
+        const merged: Record<string, string> = { ...serverMap };
+        const draft = readDraft(examId);
+        let recovered = 0;
+        if (draft && draft.submissionId === startData.submissionId && draft.savedAt >= startTime) {
+          for (const [questionId, answerText] of Object.entries(draft.answers)) {
+            if (answerText && answerText.trim() && answerText !== merged[questionId]) {
+              merged[questionId] = answerText;
+              recovered += 1;
+            }
+          }
+        }
+        setAnswers(merged);
+        lastSavedJsonRef.current = JSON.stringify(serverMap);
+        dirtyRef.current = JSON.stringify(merged) !== JSON.stringify(serverMap);
+        if (recovered > 0) {
+          setRecoveredCount(recovered);
+          setSaveIndicator('unsaved'); // genuinely unsaved until the loop pushes it (~3s)
+        }
         // Use an absolute end-time so the countdown can't drift or freeze when the tab is backgrounded
         const end = startTime + examData.duration * 60 * 1000;
         setEndTime(end);
@@ -46,6 +96,9 @@ export default function ExamTaking() {
         // Submission already finished server-side (auto-expired / duplicate submit) —
         // drop the student on the dashboard instead of a dead-end error.
         if (/already submitted|not in progress/i.test(err?.message || '')) {
+          // Keep the local draft: if a teacher later reopens this submission it is the only
+          // copy of anything typed after the last successful save.
+          clearPosition(examId);
           navigate('/student');
           return;
         }
@@ -82,15 +135,65 @@ export default function ExamTaking() {
 
   useEffect(() => { if (timeLeft === 0 && submissionId) handleSubmitExam(true); }, [timeLeft]);
 
+  // One save path for every trigger: the tick, a question change, a blur, tab hide/close.
+  const pushAnswers = useCallback(async (): Promise<boolean> => {
+    if (!submissionId || submittedRef.current) return true;
+    const snapshot = answersRef.current;
+    const ansArray = buildAnswerPayload();
+    setSaveIndicator('saving');
+    try {
+      await saveAnswers(submissionId, ansArray);
+      lastSavedJsonRef.current = JSON.stringify(snapshot);
+      dirtyRef.current = false;
+      setSaveIndicator('saved');
+      setRecoveredCount(0); // the recovered answers are safely on the server now
+      return true;
+    } catch {
+      // Never pretend it saved — leave the warning up and let the next tick retry.
+      dirtyRef.current = true;
+      setSaveIndicator('unsaved');
+      return false;
+    }
+  }, [submissionId]);
+
+  // Push only when something actually changed, every 3s. Cheap for 30 students, and it shrinks
+  // the window between screen and server to a few seconds (was 10s, and failures were silent).
   useEffect(() => {
     if (!submissionId) return;
-    saveTimerRef.current = setInterval(async () => {
-      const ansArray = Object.entries(answersRef.current).map(([questionId, answerText]) => ({ questionId, answerText }));
-      try { setSaveIndicator('saving'); await saveAnswers(submissionId!, ansArray); setSaveIndicator('saved'); setTimeout(() => setSaveIndicator('idle'), 2000); }
-      catch { setSaveIndicator('idle'); }
-    }, 10000);
-    return () => { if (saveTimerRef.current) clearInterval(saveTimerRef.current); };
-  }, [submissionId]);
+    const tick = () => {
+      if (submittedRef.current) return;
+      if (!dirtyRef.current && JSON.stringify(answersRef.current) === lastSavedJsonRef.current) return;
+      pushAnswers();
+    };
+    saveTimerRef.current = setInterval(tick, 3000);
+    const healDraft = setTimeout(tick, 300); // push recovered draft answers straight away
+    return () => {
+      if (saveTimerRef.current) clearInterval(saveTimerRef.current);
+      clearTimeout(healDraft);
+    };
+  }, [submissionId, pushAnswers]);
+
+  // Flush on hide/refresh/close. `keepalive` lets the request finish after the page is gone,
+  // and the draft write means even a failed request cannot lose the text.
+  const flushSave = useCallback(() => {
+    if (!submissionId || submittedRef.current) return;
+    persistDraft(submissionId);
+    const ansArray = buildAnswerPayload();
+    saveAnswersKeepalive(submissionId, ansArray).catch(() => { /* best effort — never block unload */ });
+  }, [submissionId, persistDraft]);
+
+  useEffect(() => {
+    if (!submissionId) return;
+    const onVisibilityChange = () => { if (document.visibilityState === 'hidden') flushSave(); };
+    const onPageHide = () => flushSave();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', onPageHide);
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+  }, [submissionId, flushSave]);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => { if (submissionId && timeLeft && timeLeft > 0) { e.preventDefault(); e.returnValue = ''; } };
@@ -109,7 +212,7 @@ export default function ExamTaking() {
       // (lazy expiry) the save is rejected with 409 "not in progress" — that's fine,
       // the submit below is authoritative and will succeed idempotently.
       try {
-        const ansArray = Object.entries(answersRef.current).map(([questionId, answerText]) => ({ questionId, answerText }));
+        const ansArray = buildAnswerPayload();
         await saveAnswers(submissionId, ansArray);
       } catch { /* ignore — submit below is authoritative */ }
 
@@ -120,10 +223,14 @@ export default function ExamTaking() {
         if (!/already submitted|not in progress/i.test(err?.message || '')) throw err;
       }
 
+      if (examId) {
+        clearPosition(examId);
+        clearDraft(examId); // everything is on the server now
+      }
       navigate(`/student/result/${submissionId}`);
     }
     catch (err: any) { submittedRef.current = false; if (!isAuto) setError(err.message || 'Failed to submit'); }
-  }, [submissionId, navigate]);
+  }, [submissionId, navigate, examId]);
 
   if (loading) return <div className="loading-center"><span className="spinner" /></div>;
   if (!exam) return <div className="error-banner">Exam not found</div>;
@@ -136,15 +243,27 @@ export default function ExamTaking() {
   const formatTime = (sec: number) => { const m = Math.floor(sec / 60); const s = sec % 60; return `${m}:${s.toString().padStart(2, '0')}`; };
   const progressPct = timeLeft !== null ? ((exam.duration * 60 - timeLeft) / (exam.duration * 60)) * 100 : 0;
   const timerClass = timeLeft !== null && timeLeft < exam.duration * 60 * 0.1 ? 'danger' : timeLeft !== null && timeLeft < exam.duration * 60 * 0.25 ? 'warn' : '';
-  const handleAnswerChange = (value: string) => { if (!q) return; setAnswers((prev) => ({ ...prev, [q.id]: value })); };
-  const goTo = (idx: number) => { if (idx >= 0 && idx < questions.length) setCurrentQ(idx); };
+  const handleAnswerChange = (value: string) => {
+    if (!q) return;
+    setAnswers((prev) => ({ ...prev, [q.id]: value }));
+    dirtyRef.current = true;
+    // Mirror to localStorage (debounced) so a crash or reload cannot lose the typing.
+    if (submissionId) {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = setTimeout(() => persistDraft(submissionId), 300);
+    }
+  };
+  const goTo = (idx: number) => {
+    if (idx < 0 || idx >= questions.length) return;
+    flushSave(); // she has stopped typing — push now instead of waiting for the 3s tick
+    setCurrentQ(idx);
+    if (examId) writePosition(examId, idx);
+  };
 
   return (
     <div className="exam-container">
       <div className="exam-sidebar">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 50, width: 140, maxWidth: '100%', objectFit: 'contain' }} />
-        </div>
+        <BrandBar />
         <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 15, color: 'var(--text-primary)' }}>{exam.title}</div>
         <div className="text-sm text-secondary" style={{ marginBottom: 16 }}>{answeredCount} of {questions.length} answered</div>
         <div className="q-nav" style={{ marginBottom: 20 }}>
@@ -161,8 +280,9 @@ export default function ExamTaking() {
         <div className="exam-topbar">
           <div className="exam-topbar-title">{exam.title}</div>
           <div className="exam-topbar-info">
-            {saveIndicator === 'saving' && <span className="text-sm text-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>⏳ Saving...</span>}
-            {saveIndicator === 'saved' && <span className="text-sm" style={{ color: 'var(--teal-600)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>✓ Saved</span>}
+            {saveIndicator === 'saving' && <span className="text-sm text-secondary">Saving…</span>}
+            {saveIndicator === 'saved' && <span className="text-sm" style={{ color: 'var(--teal-600)' }}>✓ Saved</span>}
+            {saveIndicator === 'unsaved' && <span className="text-sm" style={{ color: '#dc2626', fontWeight: 700 }}>Not saved yet — do not close this page</span>}
             <span className={`timer-display ${timerClass}`}>{timeLeft !== null ? formatTime(timeLeft) : '--:--'}</span>
           </div>
         </div>
@@ -184,8 +304,8 @@ export default function ExamTaking() {
                   ))}
                 </div>
               )}
-              {q.type === 'short' && (<textarea className="input" rows={4} value={answers[q.id] || ''} onChange={(e) => handleAnswerChange(e.target.value)} placeholder="Type your answer..." style={{ resize: 'vertical', marginBottom: 16 }} />)}
-              {q.type === 'long' && (<textarea className="input" rows={8} value={answers[q.id] || ''} onChange={(e) => handleAnswerChange(e.target.value)} placeholder="Type your answer..." style={{ resize: 'vertical', marginBottom: 16 }} />)}
+              {q.type === 'short' && (<textarea className="input" rows={4} value={answers[q.id] || ''} onChange={(e) => handleAnswerChange(e.target.value)} onBlur={() => flushSave()} placeholder="Type your answer..." style={{ resize: 'vertical', marginBottom: 16 }} />)}
+              {q.type === 'long' && (<textarea className="input" rows={8} value={answers[q.id] || ''} onChange={(e) => handleAnswerChange(e.target.value)} onBlur={() => flushSave()} placeholder="Type your answer..." style={{ resize: 'vertical', marginBottom: 16 }} />)}
               <div style={{ marginBottom: 16 }}><span className="badge badge-mcq">{q.points} Points</span></div>
               <div className="exam-nav-buttons">
                 <button className="btn btn-ghost" style={{ border: '1px solid var(--border-medium)' }} onClick={() => goTo(currentQ - 1)} disabled={currentQ === 0}>&larr; Previous</button>
@@ -197,6 +317,17 @@ export default function ExamTaking() {
       </div>
       {confirmSubmit && (
         <div className="confirm-overlay" onClick={() => setConfirmSubmit(false)}><div className="confirm-dialog" onClick={(e) => e.stopPropagation()}><h3>Submit Exam</h3><p>You have answered {answeredCount} of {questions.length} questions. Are you sure you want to submit?</p><div className="confirm-actions"><button className="btn btn-ghost" onClick={() => setConfirmSubmit(false)}>Cancel</button><button className="btn btn-primary" onClick={() => handleSubmitExam()}>Submit now</button></div></div></div>
+      )}
+      {recoveredCount > 0 && (
+        <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 100 }}>
+          <div className="error-banner" style={{ background: '#0d9488', color: '#fff' }}>
+            ✓ Recovered {recoveredCount} unsaved answer{recoveredCount === 1 ? '' : 's'} from this device — saving…</div>
+        </div>
+      )}
+      {saveIndicator === 'unsaved' && recoveredCount === 0 && (
+        <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 100 }}>
+          <div className="error-banner" role="alert">Your answers are not saved yet. Keep this page open — we are retrying.</div>
+        </div>
       )}
       {error && (<div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 100 }}><div className="error-banner">{error}</div></div>)}
     </div>

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getStats, getExams, getSubmissions } from '../../api';
 import type { Exam, Submission } from '../../types';
 import TeacherSidebar from '../../components/TeacherSidebar';
+import BrandBar from '../../components/BrandBar';
 
 export default function TeacherDashboard() {
   const navigate = useNavigate();
@@ -28,9 +29,7 @@ export default function TeacherDashboard() {
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <TeacherSidebar extra={stats?.pending > 0 ? <span className="nav-badge">{stats.pending}</span> : null} />
       <main className="main-content">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 50, width: 140, maxWidth: '100%', objectFit: 'contain' }} />
-        </div>
+        <BrandBar />
         <div className="page-header"><h1>Dashboard</h1></div>
         {loading && <div className="loading-center"><span className="spinner" /></div>}
         {error && <div className="error-banner">{error}</div>}

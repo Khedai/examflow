@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { getExam, createExam, updateExam } from '../../api';
 import type { CreateExamBody, Question } from '../../types';
 import TeacherSidebar from '../../components/TeacherSidebar';
+import BrandBar from '../../components/BrandBar';
 
 type EditableQuestion = Omit<Question, 'id' | 'examId'> & { id?: string };
 
@@ -88,7 +89,7 @@ export default function ExamEditor() {
       if (q.type === 'mcq') {
         const f = (q.options || []).filter((o) => o.trim());
         if (f.length < 2) e[`q${i}o`] = 'Minimum of 2 options is required';
-        if (!q.correct || !(q.options || []).includes(q.correct)) e[`q${i}c`] = 'Choose a correct answer option';
+        if (!q.correct || !f.includes(q.correct)) e[`q${i}c`] = 'Choose a correct answer option';
       }
     });
     setFieldErrors(e);
@@ -105,12 +106,14 @@ export default function ExamEditor() {
         description: desc,
         duration,
         startTime: startTime || undefined,
-        questions: questions.map((q) => ({
-          position: q.position,
+        questions: questions.map((q, qi) => ({
+          // Positions are recomputed from the visible order (add/move/delete can stale them),
+          // and blank MCQ options are dropped — the server rejects empty option strings.
+          position: qi + 1,
           type: q.type,
           text: q.text.trim(),
           points: q.points,
-          options: q.type === 'mcq' ? q.options : undefined,
+          options: q.type === 'mcq' ? (q.options || []).filter((o) => o.trim()) : undefined,
           correct: q.type === 'mcq' ? q.correct : undefined
         }))
       };
@@ -130,16 +133,14 @@ export default function ExamEditor() {
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <TeacherSidebar />
       <main className="main-content">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 50, width: 140, maxWidth: '100%', objectFit: 'contain' }} />
-        </div>
-        
+        <BrandBar />
+
         <div className="page-header">
           <h1>{isEdit ? 'Edit Exam' : 'Create Exam'}</h1>
           <button className="btn btn-ghost btn-sm" style={{ border: '1px solid var(--border-medium)' }} onClick={() => navigate('/teacher/exams')}>&larr; Back to Exams</button>
         </div>
 
-        {error && <div className="error-banner">{error}</div>}
+        {error && <div className="error-banner" role="alert">{error}</div>}
 
         <div className="card" style={{ marginBottom: 20 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: 'var(--text-primary)' }}>Exam Details</h2>
@@ -206,15 +207,15 @@ export default function ExamEditor() {
                       
                       {q.type === 'mcq' && (
                         <div style={{ marginTop: 12 }}>
-                          <label className="label">Answer Options (Select correct answer ratio) *</label>
+                          <label className="label">Answer options — tick the correct one *</label>
                           {fieldErrors[`q${i}o`] && <span className="field-error">{fieldErrors[`q${i}o`]}</span>}
                           {fieldErrors[`q${i}c`] && <span className="field-error" style={{ marginLeft: 8 }}>{fieldErrors[`q${i}c`]}</span>}
                           
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
                             {(q.options || ['', '', '', '']).map((o, oi) => (
                               <div key={oi} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                                <input type="radio" name={`c-${i}`} style={{ width: 20, height: 20, cursor: 'pointer' }} checked={q.correct === o && o.trim() !== ''} onChange={() => updQ(i, { correct: o })} title="Mark as correct answer" />
-                                <input className="input" value={o} onChange={(e) => { const op = [...(q.options || [])]; op[oi] = e.target.value; updQ(i, { options: op }); }} placeholder={`Option ${oi + 1}`} />
+                                <input type="radio" name={`c-${i}`} style={{ width: 20, height: 20, cursor: 'pointer' }} checked={q.correct === o && o.trim() !== ''} onChange={() => updQ(i, { correct: o })} title="Mark as correct answer" aria-label={`Mark option ${oi + 1} as correct`} />
+                                <input className="input" value={o} onChange={(e) => { const op = [...(q.options || [])]; const prev = op[oi]; op[oi] = e.target.value; updQ(i, q.correct === prev ? { options: op, correct: e.target.value } : { options: op }); }} placeholder={`Option ${oi + 1} (leave blank to omit)`} />
                               </div>
                             ))}
                           </div>
@@ -230,7 +231,7 @@ export default function ExamEditor() {
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
           <button className="btn btn-primary" onClick={save} disabled={saving} style={{ minWidth: 160 }}>
-            {saving ? <span className="spinner" /> : `Save Exam (${questions.length} questions)`}
+            {saving ? (<><span className="spinner" aria-hidden="true" /> Saving…</>) : `Save Exam (${questions.length} questions)`}
           </button>
         </div>
       </main>

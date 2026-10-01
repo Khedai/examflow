@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { studentLogin } from '../api';
+import { studentLogin, warmServer } from '../api';
+import BrandBar from '../components/BrandBar';
 import '../styles/global.css';
 import '../styles/components.css';
 import '../styles/exam.css';
@@ -15,6 +16,10 @@ export default function Landing() {
   const [loading, setLoading] = useState(false);
   const { loginStudent } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    warmServer();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,20 +47,18 @@ export default function Landing() {
         Teacher Login &rarr;
       </Link>
       <div className="login-card card">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-          <img src="/logo.png" alt="Logo" style={{ height: 60, width: 160, maxWidth: '100%' }} />
-        </div>
+        <BrandBar size="lg" centered />
         <p className="login-subtitle" style={{ maxWidth: 500 }}>Enter your details to access your exams.</p>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <div className="error-banner" role="alert">{error}</div>}
         <form onSubmit={handleSubmit}>
           <div className="grid-2">
             <div className="form-group">
               <label className="label" htmlFor="sname">First name *</label>
-              <input id="sname" className="input" value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="e.g. John" />
+              <input id="sname" className="input" value={name} onChange={(e) => setName(e.target.value)} autoFocus autoComplete="given-name" placeholder="e.g. John" />
             </div>
             <div className="form-group">
               <label className="label" htmlFor="ssurname">Surname *</label>
-              <input id="ssurname" className="input" value={surname} onChange={(e) => setSurname(e.target.value)} placeholder="e.g. Doe" />
+              <input id="ssurname" className="input" value={surname} onChange={(e) => setSurname(e.target.value)} autoComplete="family-name" placeholder="e.g. Doe" />
             </div>
           </div>
           <div className="form-group">
@@ -64,10 +67,10 @@ export default function Landing() {
           </div>
           <div className="form-group">
             <label className="label" htmlFor="scell">Cell (optional)</label>
-            <input id="scell" className="input" value={cell} onChange={(e) => setCell(e.target.value)} placeholder="e.g. +27..." />
+            <input id="scell" className="input" value={cell} onChange={(e) => setCell(e.target.value)} autoComplete="tel" inputMode="tel" placeholder="e.g. +27..." />
           </div>
           <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={loading}>
-            {loading ? <span className="spinner" /> : 'Access exams'}
+            {loading ? (<><span className="spinner" aria-hidden="true" /> Signing in…</>) : 'Access exams'}
           </button>
         </form>
         <p className="text-sm text-secondary" style={{ marginTop: 12, textAlign: 'center' }}>
