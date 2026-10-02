@@ -8,7 +8,7 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   loginTeacher: (token: string) => void;
-  loginStudent: (token: string, student: Student) => void;
+  loginStudent: (token: string, student: Student, authToken?: string) => void;
   logout: () => void;
 }
 
@@ -38,9 +38,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState({ role: 'teacher', student: null });
   };
 
-  const loginStudent = (token: string, student: Student) => {
+  const loginStudent = (token: string, student: Student, authToken?: string) => {
     localStorage.setItem('student_token', token);
     localStorage.setItem('student_data', JSON.stringify(student));
+    // Long-lived identity token: lets a lost/cleared session be recovered for THIS student row
+    // without re-matching them by name (which could land them on a different, empty submission).
+    if (authToken) localStorage.setItem('student_authtoken', authToken);
     localStorage.removeItem('teacher_token');
     setState({ role: 'student', student });
   };

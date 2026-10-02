@@ -28,7 +28,7 @@ console.log('[dotenv] TEACHER_PASSWORD set:', !!process.env.TEACHER_PASSWORD);
 
 import teacherRouter from './routes/teacher';
 import examsRouter from './routes/exams';
-import submissionsRouter from './routes/submissions';
+import submissionsRouter, { sweepExpiredSubmissions } from './routes/submissions';
 import batchesRouter from './routes/batches';
 import studentsRouter from './routes/students';
 import { errorHandler } from './middleware/errorHandler';
@@ -39,6 +39,10 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'https://examflow.vercel.app',
+  // The frontend students actually use (a separate Vercel project). Listed explicitly as well as
+  // via CORS_ORIGIN so a redeploy from render.yaml — which pins CORS_ORIGIN to the older URL —
+  // can never silently CORS-block every request from the real exam frontend.
+  'https://kdebt-exam.vercel.app',
   ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []),
 ];
 
@@ -98,6 +102,13 @@ async function start() {
 
   // Cleanup stale sessions every hour
   setInterval(() => { cleanupStaleSessions(); }, 60 * 60 * 1000).unref();
+
+  // Auto-submit expired exams every minute so a submission always closes on time, even if the
+  // student's tab is gone and nobody opens the teacher submissions page. unref() so this timer
+  // never keeps the process alive during a redeploy.
+  setInterval(() => {
+    sweepExpiredSubmissions().catch((e) => console.error('[submissions] expiry sweep failed:', e));
+  }, 60 * 1000).unref();
 }
 
 start().catch((err) => {

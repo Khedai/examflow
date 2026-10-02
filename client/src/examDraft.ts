@@ -6,6 +6,7 @@
 
 export interface ExamDraft {
   submissionId: string;
+  attempt: number; // server attempt counter this draft belongs to (bumped by a teacher Reset)
   savedAt: number; // epoch ms of the last local write
   answers: Record<string, string>;
 }
@@ -19,15 +20,17 @@ export function readDraft(examId: string): ExamDraft | null {
     if (!raw) return null;
     const d = JSON.parse(raw) as ExamDraft;
     if (!d || typeof d.submissionId !== 'string' || typeof d.savedAt !== 'number' || !d.answers) return null;
+    // Drafts written before attempt tracking existed belong to attempt 1.
+    if (typeof d.attempt !== 'number') d.attempt = 1;
     return d;
   } catch {
     return null;
   }
 }
 
-export function writeDraft(examId: string, submissionId: string, answers: Record<string, string>): void {
+export function writeDraft(examId: string, submissionId: string, attempt: number, answers: Record<string, string>): void {
   try {
-    const draft: ExamDraft = { submissionId, savedAt: Date.now(), answers };
+    const draft: ExamDraft = { submissionId, attempt, savedAt: Date.now(), answers };
     localStorage.setItem(draftKey(examId), JSON.stringify(draft));
   } catch {
     // storage full / disabled (private mode) — the server save still protects her work

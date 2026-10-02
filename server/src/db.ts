@@ -25,17 +25,42 @@ async function getBackend(): Promise<DbClient> {
       const { Pool } = await import('pg');
       // Force IPv4 — Render cannot reach Supabase IPv6
       // Don't rewrite port for pooler URLs (they use different ports)
+      // Hard caps matter here. A save is a transaction of many sequential round-trips, and pg's
+      // default connect timeout is 0 (wait FOREVER). Once all connections were busy, every request
+      // queued behind them indefinitely — the client gives up at 25s, so all a student ever saw was
+      // "The server took too long to respond", and nothing recovered until a restart.
       const pool = new Pool({
         connectionString: pgUrl,
         max: 10,
         idleTimeoutMillis: 30000,
+        // Fail fast (and visibly) instead of waiting forever when every connection is in use.
+        connectionTimeoutMillis: 5000,
+        // A single blackholed statement must not pin one of the 10 connections indefinitely.
+        statement_timeout: 10000,
+        query_timeout: 10000,
+        // Reap a transaction abandoned mid-flight (aborted client, redeploy) instead of leaking it.
+        idle_in_transaction_session_timeout: 15000,
+        keepAlive: true,
         ssl: { rejectUnauthorized: false },
         family: 4, // Force IPv4
       } as any);
       _pgPool = pool;
       console.log('[db] Trying PostgreSQL backend:', pgUrl.replace(/\/\/.*@/, '//***@'));
-      // Quick connectivity test
-      await pool.query('SELECT 1');
+      // Connectivity test, retried: the production guard below deliberately refuses to fall back to
+      // an empty SQLite file, so a single slow Supabase handshake at boot must not take the API down.
+      let lastErr: any = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await pool.query('SELECT 1');
+          lastErr = null;
+          break;
+        } catch (e: any) {
+          lastErr = e;
+          console.warn(`[db] PostgreSQL connectivity test failed (attempt ${attempt}/3): ${e.message}`);
+          if (attempt < 3) await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+      if (lastErr) throw lastErr;
       console.log('[db] PostgreSQL connected');
 
       const pgBackend: DbClient = {
@@ -64,6 +89,13 @@ async function getBackend(): Promise<DbClient> {
       _backend = pgBackend;
       return _backend;
     } catch (e: any) {
+      // In production the database IS the exam. Silently continuing on an empty, ephemeral SQLite
+      // file would show students a blank paper and the teacher no submissions — indistinguishable
+      // from losing all the data. Fail loudly (red health check, instance restarts) instead.
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[db] PostgreSQL unavailable and the SQLite fallback is disabled in production:', e.message);
+        throw e;
+      }
       console.log('[db] PostgreSQL unavailable, falling back to SQLite:', e.message);
     }
   }
@@ -76,7 +108,9 @@ async function initSqlite(): Promise<DbClient> {
   const Database = (await import('better-sqlite3')).default;
   const path = (await import('path')).default;
 
-  const DB_PATH = path.join(__dirname, '..', 'examflow.db');
+  // SQLITE_PATH lets a test/dry run point at a throwaway copy of the database, so the migration
+  // and write-ordering changes can be exercised without touching the real local dev DB.
+  const DB_PATH = process.env.SQLITE_PATH || path.join(__dirname, '..', 'examflow.db');
   console.log('[db] Opening SQLite database:', DB_PATH);
   const db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
@@ -268,6 +302,7 @@ export async function initSchema() {
         started_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         submitted_at  TEXT,
         score         INTEGER,
+        attempt       INTEGER NOT NULL DEFAULT 1,
         created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         UNIQUE (exam_id, student_id)
       );
@@ -335,6 +370,19 @@ export async function initSchema() {
       console.error('[db] answers.updated_at migration failed:', e.message);
     }
 
+    // Migration: per-submission attempt counter. Bumped only when a teacher Reset clears the
+    // answers, so the client can tell a genuine reset apart from a plain reload that merely
+    // found no saved answers yet (the bug that discarded a good local draft).
+    try {
+      const subCols: any[] = _sqliteDb.prepare('PRAGMA table_info(submissions)').all();
+      if (!subCols.some((c: any) => c.name === 'attempt')) {
+        _sqliteDb.exec('ALTER TABLE submissions ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1');
+        console.log('[db] Added submissions.attempt (SQLite)');
+      }
+    } catch (e: any) {
+      console.error('[db] submissions.attempt migration failed:', e.message);
+    }
+
     return;
   }
 
@@ -386,6 +434,7 @@ export async function initSchema() {
       started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       submitted_at  TIMESTAMPTZ,
       score         INTEGER,
+      attempt       INTEGER NOT NULL DEFAULT 1,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (exam_id, student_id)
     )`,
@@ -401,6 +450,8 @@ export async function initSchema() {
     )`,
     // Existing databases predate updated_at — additive and idempotent
     `ALTER TABLE answers ADD COLUMN IF NOT EXISTS updated_at BIGINT`,
+    // Existing databases predate the per-submission attempt counter (bumped on teacher Reset)
+    `ALTER TABLE submissions ADD COLUMN IF NOT EXISTS attempt INTEGER NOT NULL DEFAULT 1`,
     `CREATE INDEX IF NOT EXISTS idx_questions_exam ON questions(exam_id)`,
     `CREATE INDEX IF NOT EXISTS idx_submissions_exam ON submissions(exam_id)`,
     `CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_id)`,

@@ -13,6 +13,50 @@ async function tryGetStudentId(req: Request): Promise<string | null> {
   return row?.id || null;
 }
 
+// ─── AUTO-EXPIRY ──────────────────────────────────────────
+// Auto-submit any STARTED submission whose duration has elapsed, and auto-grade its MCQs.
+// Called on a server interval (index.ts) and from GET / so an exam always closes on time
+// even if nobody opens the submissions page.
+export async function sweepExpiredSubmissions(): Promise<number> {
+  const rows = await getAll(`
+    SELECT s.id, s.started_at, e.duration as exam_duration
+    FROM submissions s JOIN exams e ON e.id = s.exam_id
+    WHERE s.status = 'STARTED'
+  `);
+  let expired = 0;
+  for (const row of rows) {
+    const durationMs = parseInt(row.exam_duration || '0', 10) * 60 * 1000;
+    if (!durationMs) continue;
+
+    // Normalise started_at (PG returns Date objects, SQLite returns strings)
+    const startRaw = row.started_at;
+    const startMs = startRaw instanceof Date
+      ? startRaw.getTime()
+      : new Date(String(startRaw).endsWith('Z') ? startRaw : String(startRaw) + 'Z').getTime();
+    if (!startMs || Date.now() - startMs < durationMs) continue;
+
+    const expiredAt = new Date(startMs + durationMs).toISOString();
+    await run(
+      "UPDATE submissions SET status = 'SUBMITTED', submitted_at = $1 WHERE id = $2 AND status = 'STARTED'",
+      [expiredAt, row.id]
+    );
+    // Auto-grade MCQs just like a normal student submit (idempotent).
+    await run(`
+      UPDATE answers SET awarded_points = (
+        SELECT q.points FROM questions q
+        WHERE q.id = answers.question_id AND q.type = 'mcq' AND q.correct = answers.answer_text
+      )
+      WHERE submission_id = $1
+    `, [row.id]);
+    expired++;
+  }
+  if (expired > 0) {
+    console.log(`[submissions] Auto-expired ${expired} stale STARTED submission(s)`);
+  }
+  return expired;
+}
+
+
 // ─── TEACHER ROUTES ───────────────────────────────────────
 
 // GET /api/submissions — teacher: all, student: their own
@@ -61,45 +105,12 @@ router.get('/', optionalTeacher, async (req: Request, res: Response) => {
     }
     sql += ' ORDER BY s.created_at DESC';
 
+    // Auto-submit any STARTED submission whose timer has run out, so it shows correctly here.
+    // (This also runs on a server interval in index.ts, so it no longer depends on someone
+    // opening this page.)
+    await sweepExpiredSubmissions();
+
     const rows = await getAll(sql, params);
-
-    // ── Lazy expiry: auto-submit stale STARTED submissions whose timer has run out ──
-    // If a student closed the browser without submitting, the exam should still be
-    // auto-submitted once the duration has elapsed so it doesn't show as in-progress forever.
-    let expired = 0;
-    for (const row of rows) {
-      if (row.status !== 'STARTED') continue;
-      const durationMs = parseInt(row.exam_duration || '0', 10) * 60 * 1000;
-      if (!durationMs) continue;
-
-      // Normalise started_at (PG returns Date objects, SQLite returns strings)
-      const startRaw = row.started_at;
-      const startMs = startRaw instanceof Date
-        ? startRaw.getTime()
-        : new Date(String(startRaw).endsWith('Z') ? startRaw : startRaw + 'Z').getTime();
-      if (!startMs || Date.now() - startMs < durationMs) continue;
-
-      const expiredAt = new Date(startMs + durationMs).toISOString();
-      await run(
-        "UPDATE submissions SET status = 'SUBMITTED', submitted_at = $1 WHERE id = $2 AND status = 'STARTED'",
-        [expiredAt, row.id]
-      );
-      // Auto-grade MCQs just like a normal student submit
-      await run(`
-        UPDATE answers SET awarded_points = (
-          SELECT q.points FROM questions q
-          WHERE q.id = answers.question_id AND q.type = 'mcq' AND q.correct = answers.answer_text
-        )
-        WHERE submission_id = $1
-      `, [row.id]);
-
-      row.status = 'SUBMITTED';
-      row.submitted_at = expiredAt;
-      expired++;
-    }
-    if (expired > 0) {
-      console.log(`[submissions] Auto-expired ${expired} stale STARTED submission(s)`);
-    }
 
     const submissions = rows.map((row: any) => ({
       id: row.id,
@@ -299,7 +310,13 @@ router.post('/:id/reset', requireTeacher, async (req: Request, res: Response) =>
 
     await transaction(async (client) => {
       await client.query('DELETE FROM answers WHERE submission_id = $1', [id]);
-      await client.query("UPDATE submissions SET status = 'STARTED', started_at = NOW(), submitted_at = null, score = null WHERE id = $1", [id]);
+      // Bumping `attempt` makes the reset authoritative: a tab still holding answers from the
+      // previous attempt is refused (see PUT /:id/answers) and drops its local draft, instead of
+      // silently re-saving the deleted answers over the wire.
+      await client.query(
+        "UPDATE submissions SET status = 'STARTED', started_at = NOW(), submitted_at = null, score = null, attempt = COALESCE(attempt, 1) + 1 WHERE id = $1",
+        [id]
+      );
       
       // Only unlock the exam if no other students have submissions
       const otherSubs = await client.query('SELECT COUNT(*) as c FROM submissions WHERE exam_id = $1 AND id != $2', [sub.exam_id, id]);
@@ -319,7 +336,8 @@ router.post('/:id/reset', requireTeacher, async (req: Request, res: Response) =>
         );
       }
     });
-    return res.json({ reset: true });
+    const updated = await getOne('SELECT attempt FROM submissions WHERE id = $1', [id]);
+    return res.json({ reset: true, attempt: Number(updated?.attempt) || 1 });
   } catch (err: any) {
     console.error('Reset error details:', err);
     return res.status(500).json({ error: 'Failed to reset submission: ' + (err.message || 'Unknown error') });
@@ -431,34 +449,29 @@ router.post('/start', requireStudent, async (req: Request, res: Response) => {
       if (existing.status === 'SUBMITTED' || existing.status === 'MARKED') {
         return res.status(409).json({ error: 'Already submitted' });
       }
+      // `updated_at` is returned per answer so the client can tell the server *when* each answer
+      // it is holding was last written. Untouched answers are then pushed back with their original
+      // timestamp, so a stale tab cannot make its old copy look newer than another device's work.
       const answers = await getAll(`
-        SELECT a.question_id as "questionId", a.answer_text as "answerText"
+        SELECT a.question_id as "questionId", a.answer_text as "answerText", a.updated_at as "updatedAt"
         FROM answers a JOIN questions q ON q.id = a.question_id
         WHERE a.submission_id = $1 ORDER BY q.position
       `, [existing.id]);
       
-      // Check if this is a fresh reset (all answers empty) or timer already expired
-      const allEmpty = answers.every((a: any) => !a.answerText || a.answerText.trim() === '');
-      // Normalise started_at to string (pg returns Date objects, sqlite returns strings)
-      const startedAtStr: string = typeof existing.started_at === 'string'
+      // The start time is authoritative and is NEVER reset here. A reload must not restart the
+      // clock, and (critically) it must not invalidate the client's local draft. It only ever
+      // restarts through an explicit teacher Reset/Reopen, which sets started_at themselves.
+      const startedAtAsString: string = typeof existing.started_at === 'string'
         ? existing.started_at
         : (existing.started_at instanceof Date ? existing.started_at.toISOString() : String(existing.started_at));
-      const elapsed = Date.now() - new Date(startedAtStr + (startedAtStr.endsWith('Z') ? '' : 'Z')).getTime();
-      const totalMs = examRow.duration * 60 * 1000;
-      const timerExpired = elapsed >= totalMs;
-      
-      let startedAt = existing.started_at;
-      if (allEmpty || timerExpired) {
-        // Fresh reset or timer already ran out — give a fresh start time
-        startedAt = new Date().toISOString();
-        await run('UPDATE submissions SET started_at = $1 WHERE id = $2', [startedAt, existing.id]);
-      }
-      
-      // Ensure startedAt is always a string (PG may return Date objects)
-      const startedAtAsString: string = typeof startedAt === 'string'
-        ? startedAt
-        : (startedAt instanceof Date ? startedAt.toISOString() : String(startedAt));
-      return res.json({ submissionId: existing.id, startedAt: startedAtAsString, answers });
+      const attempt = Number(existing.attempt) > 0 ? Number(existing.attempt) : 1;
+      return res.json({
+        submissionId: existing.id,
+        startedAt: startedAtAsString,
+        attempt,
+        serverNow: new Date().toISOString(),
+        answers,
+      });
     }
 
     // Get the latest batch to auto-assign
@@ -480,7 +493,13 @@ router.post('/start', requireStudent, async (req: Request, res: Response) => {
       await client.query('UPDATE exams SET locked = 1 WHERE id = $1', [examId]);
     });
 
-    return res.status(201).json({ submissionId, startedAt: new Date().toISOString(), answers: [] });
+    return res.status(201).json({
+      submissionId,
+      startedAt: new Date().toISOString(),
+      attempt: 1,
+      serverNow: new Date().toISOString(),
+      answers: [],
+    });
   } catch (err: any) {
     console.error('Start exam error:', err);
     return res.status(500).json({ error: 'Failed to start exam' });
@@ -492,10 +511,13 @@ router.post('/start', requireStudent, async (req: Request, res: Response) => {
 // snapshot it is pushing); an answer is only overwritten when that snapshot is newer than what
 // is already stored. The write is therefore monotonic, so a second/older tab — which holds a
 // stale copy of the answers — can no longer wipe work that was saved after it loaded.
+// The client also sends `attempt`; if a teacher has Reset the submission since this tab loaded,
+// the save is refused (the answers were deliberately deleted) and the client is told so.
+// The response reports honestly which answers were skipped, so "saved" is never a lie.
 router.put('/:id/answers', requireStudent, async (req: Request, res: Response) => {
   try {
     const { id } = req.params as { id: string };
-    const { answers, clientSavedAt } = req.body;
+    const { answers, clientSavedAt, attempt } = req.body;
     const studentId = req.studentId!;
 
     if (!Array.isArray(answers)) return res.status(422).json({ error: 'answers must be an array' });
@@ -507,18 +529,44 @@ router.put('/:id/answers', requireStudent, async (req: Request, res: Response) =
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
     if (sub.status !== 'STARTED') return res.status(409).json({ error: 'Submission is not in progress' });
 
+    // A teacher Reset bumps `attempt` and clears the answers. Anything an old tab pushes from a
+    // previous attempt is refused here so it cannot resurrect answers that were deleted.
+    const serverAttempt = Number(sub.attempt) > 0 ? Number(sub.attempt) : 1;
+    if (attempt != null && Number(attempt) !== serverAttempt) {
+      return res.json({ saved: false, staleAttempt: true, attempt: serverAttempt });
+    }
+
+    // Question ids whose stored value was newer, i.e. writes intentionally skipped so an older
+    // tab cannot clobber fresher work. Computed by reading back what actually stuck (RETURNING
+    // is not usable here because the SQLite adapter runs writes without collecting rows).
+    const rejected: string[] = [];
+
     await transaction(async (client) => {
       for (const ans of answers) {
+        const editedAt = Number(ans.editedAt) > 0 ? Math.trunc(Number(ans.editedAt)) : savedAt;
         await client.query(`
           INSERT INTO answers (id, submission_id, question_id, answer_text, updated_at) VALUES ($1,$2,$3,$4,$5)
           ON CONFLICT(submission_id, question_id) DO UPDATE
             SET answer_text = EXCLUDED.answer_text, updated_at = EXCLUDED.updated_at
             WHERE answers.updated_at IS NULL OR answers.updated_at <= EXCLUDED.updated_at
-        `, [uuidv4(), id, ans.questionId, ans.answerText, savedAt]);
+        `, [uuidv4(), id, ans.questionId, ans.answerText, editedAt]);
+      }
+
+      const stored = await client.query(
+        'SELECT question_id as "questionId", updated_at FROM answers WHERE submission_id = $1',
+        [id]
+      );
+      const storedAt = new Map<string, number>();
+      for (const row of stored.rows) {
+        storedAt.set(row.questionId, row.updated_at == null ? 0 : Number(row.updated_at));
+      }
+      for (const ans of answers) {
+        const editedAt = Number(ans.editedAt) > 0 ? Math.trunc(Number(ans.editedAt)) : savedAt;
+        if ((storedAt.get(ans.questionId) ?? 0) > editedAt) rejected.push(ans.questionId);
       }
     });
 
-    return res.json({ saved: true });
+    return res.json({ saved: true, attempt: serverAttempt, rejected });
   } catch (err: any) {
     console.error('Save answers error:', err);
     return res.status(500).json({ error: 'Failed to save answers' });

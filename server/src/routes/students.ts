@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import jwt from 'jsonwebtoken';
 import { requireStudent } from '../middleware/auth';
 import { getOne, query } from '../db';
 
@@ -99,8 +100,16 @@ router.post('/login', loginRateLimit, async (req: Request, res: Response) => {
       student = await getOne('SELECT * FROM students WHERE id = $1', [id]);
     }
 
+    // A long-lived identity token for this exact student row. If the session token is later
+    // invalidated (a teacher Reset clears it so the student must re-authenticate, or it simply
+    // expired), the client presents this to obtain a fresh session for the SAME record — so a
+    // returning student is never re-matched by name (which could pick a duplicate row and hand
+    // them a different, empty submission).
+    const authToken = jwt.sign({ sid: student.id }, process.env.JWT_SECRET!, { expiresIn: '30d' });
+
     return res.json({
       token: sessionToken,
+      authToken,
       student: {
         id: student.id,
         studentId: student.student_id || '',
@@ -112,6 +121,48 @@ router.post('/login', loginRateLimit, async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Student login error:', err);
     return res.status(500).json({ error: 'Failed to login' });
+  }
+});
+
+// POST /api/students/refresh
+// Re-issues a session token from the long-lived auth token. Used when the session was
+// invalidated (teacher Reset) or expired. Identity is resolved by the student's own id, so the
+// student is always reconnected to their existing submission and saved answers.
+router.post('/refresh', async (req: Request, res: Response) => {
+  try {
+    const authToken = (req.headers['x-student-authtoken'] as string) || req.body?.authToken;
+    if (!authToken) return res.status(401).json({ error: 'No auth token' });
+
+    let payload: any;
+    try {
+      payload = jwt.verify(authToken, process.env.JWT_SECRET!);
+    } catch {
+      return res.status(401).json({ error: 'Invalid or expired auth token' });
+    }
+
+    const sid = payload?.sid;
+    if (!sid) return res.status(401).json({ error: 'Invalid auth token' });
+
+    const student = await getOne('SELECT * FROM students WHERE id = $1', [sid]);
+    if (!student) return res.status(404).json({ error: 'Student not found' });
+
+    const sessionToken = uuidv4();
+    await query('UPDATE students SET session_token = $1 WHERE id = $2', [sessionToken, sid]);
+
+    return res.json({
+      token: sessionToken,
+      authToken,
+      student: {
+        id: student.id,
+        studentId: student.student_id || '',
+        name: student.name,
+        surname: student.surname,
+        cell: student.cell || '',
+      },
+    });
+  } catch (err: any) {
+    console.error('Student refresh error:', err);
+    return res.status(500).json({ error: 'Failed to refresh session' });
   }
 });
 

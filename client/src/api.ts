@@ -1,5 +1,5 @@
 import type {
-  Exam, Student, Submission, Batch, CreateExamBody, FinalizeMarkingBody,
+  Exam, Student, Submission, Batch, CreateExamBody, FinalizeMarkingBody, StartExamResponse,
 } from './types';
 
 const BASE = import.meta.env.VITE_API_URL || '';
@@ -30,9 +30,15 @@ function getHeaders(extra?: Record<string, string>): HeadersInit {
 // A student's session only lives in the `students.session_token` column, so a second login
 // (another device/tab), a teacher Reset, or the hourly stale-session sweep can invalidate it
 // mid-exam. That 401 used to wipe localStorage and hard-navigate to the landing page — which is
-// exactly how students got "sent back to Question 1" with their typing gone. Instead we quietly
-// sign the student back in with the details captured at their first login and replay the
-// request, so an exam in progress is never interrupted.
+// exactly how students got "sent back to Question 1" with their typing gone.
+//
+// Recovery is now identity-based: every login stores a long-lived `student_authtoken` (a JWT
+// whose subject is the student's own row id), and POST /api/students/refresh mints a new session
+// for that SAME row. So re-authenticating can never re-match the student by name and land them
+// on a different (empty) submission. Only if there is no auth token do we fall back to a plain
+// login with the details captured at first sign-in.
+
+const AUTH_TOKEN_KEY = 'student_authtoken';
 
 function storedStudent(): Student | null {
   const raw = localStorage.getItem('student_data');
@@ -45,7 +51,39 @@ function storedStudent(): Student | null {
   }
 }
 
+export function getStudentAuthToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setStudentAuthToken(token: string): void {
+  try { localStorage.setItem(AUTH_TOKEN_KEY, token); } catch { /* storage disabled */ }
+}
+
+function persistedSession(data: any): boolean {
+  if (!data?.token) return false;
+  localStorage.setItem('student_token', data.token);
+  if (data.student) localStorage.setItem('student_data', JSON.stringify(data.student));
+  if (data.authToken) setStudentAuthToken(data.authToken);
+  return true;
+}
+
 async function reAuthStudent(): Promise<boolean> {
+  // Preferred path: prove identity with the auth token we already hold.
+  const authToken = getStudentAuthToken();
+  if (authToken) {
+    try {
+      const res = await fetch(`${BASE}/api/students/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Student-AuthToken': authToken },
+      });
+      if (res.ok && persistedSession(await res.json())) return true;
+    } catch {
+      // fall through to the name-based login below
+    }
+  }
+
+  // Fallback: sign in again with the details captured at first login. This also mints a fresh
+  // auth token, so subsequent recoveries use the identity-based path above.
   const s = storedStudent();
   if (!s) return false;
   try {
@@ -60,11 +98,7 @@ async function reAuthStudent(): Promise<boolean> {
       }),
     });
     if (!res.ok) return false;
-    const data = await res.json();
-    if (!data?.token) return false;
-    localStorage.setItem('student_token', data.token);
-    if (data.student) localStorage.setItem('student_data', JSON.stringify(data.student));
-    return true;
+    return persistedSession(await res.json());
   } catch {
     return false;
   }
@@ -215,8 +249,10 @@ export const finalizeMarking = (id: string, body: FinalizeMarkingBody) =>
   );
 
 export const resetSubmission = (id: string) =>
-  request<{ reset: boolean }>('POST', `/api/submissions/${id}/reset`);
+  request<{ reset: boolean; attempt: number }>('POST', `/api/submissions/${id}/reset`);
 
+// Reopen restarts the timer but KEEPS the answers, so it deliberately does not bump `attempt`
+// (the attempt only moves when the answers have actually been cleared, i.e. a Reset).
 export const reopenSubmission = (id: string) =>
   request<{ reopened: boolean }>('POST', `/api/submissions/${id}/reopen`);
 
@@ -233,37 +269,54 @@ export const studentLogin = (body: {
   studentId: string;
   cell: string;
 }) =>
-  request<{ token: string; student: Student }>('POST', '/api/students/login', body);
+  request<{ token: string; authToken: string; student: Student }>('POST', '/api/students/login', body);
 
 export const startExam = (examId: string) =>
-  request<{
-    submissionId: string;
-    startedAt: string;
-    answers: { questionId: string; answerText: string }[];
-  }>('POST', '/api/submissions/start', { examId });
+  request<StartExamResponse>('POST', '/api/submissions/start', { examId });
+
+// Answer payload. `editedAt` is the server-aligned moment this specific answer was last changed,
+// so the server can keep the newest value per question even across two tabs or two devices.
+export interface SaveAnswerItem {
+  questionId: string;
+  answerText: string;
+  editedAt?: number;
+}
+
+export interface SaveResult {
+  saved: boolean;
+  attempt?: number;
+  // True when the submission has been Reset (attempt moved on) and this payload is from an older
+  // attempt — the answers were deliberately deleted and must not be re-applied.
+  staleAttempt?: boolean;
+  // Question ids the server refused to overwrite because the stored value was newer.
+  rejected?: string[];
+}
 
 // `clientSavedAt` lets the server reject stale writes: every save carries the moment the
 // snapshot was taken, and the server only overwrites an answer that was written earlier.
 // That makes a second (older) tab or a replayed request unable to clobber newer answers.
 export const saveAnswers = (
   submissionId: string,
-  answers: { questionId: string; answerText: string }[]
+  answers: SaveAnswerItem[],
+  opts?: { attempt?: number; clientSavedAt?: number }
 ) =>
-  request<{ saved: boolean }>('PUT', `/api/submissions/${submissionId}/answers`, {
+  request<SaveResult>('PUT', `/api/submissions/${submissionId}/answers`, {
     answers,
-    clientSavedAt: Date.now(),
+    attempt: opts?.attempt,
+    clientSavedAt: opts?.clientSavedAt ?? Date.now(),
   });
 
 // Fire-and-forget save used while the page is unloading (refresh/close/tab switch).
 // `keepalive` lets the browser finish the request after the page is gone.
 export const saveAnswersKeepalive = (
   submissionId: string,
-  answers: { questionId: string; answerText: string }[]
+  answers: SaveAnswerItem[],
+  opts?: { attempt?: number; clientSavedAt?: number }
 ) =>
-  request<{ saved: boolean }>(
+  request<SaveResult>(
     'PUT',
     `/api/submissions/${submissionId}/answers`,
-    { answers, clientSavedAt: Date.now() },
+    { answers, attempt: opts?.attempt, clientSavedAt: opts?.clientSavedAt ?? Date.now() },
     { keepalive: true }
   );
 

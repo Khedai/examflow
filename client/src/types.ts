@@ -62,7 +62,29 @@ export interface Submission {
   startedAt: string;
   submittedAt: string | null;
   score: number | null;
+  // Number of times this submission has been (re)started: bumped by a teacher Reset so the
+  // client can tell a deliberate restart apart from a plain page reload.
+  attempt?: number;
   answers: Answer[];
+}
+
+export interface StartExamAnswer {
+  questionId: string;
+  answerText: string;
+  // Epoch ms the server last wrote this answer (null/absent if it was never answered). Sent so
+  // the client can order its own writes honestly instead of stamping everything "now".
+  updatedAt?: number | null;
+}
+
+// Response of POST /api/submissions/start. Returned on every load, whether the exam is being
+// started for the first time or simply resumed after a reload.
+export interface StartExamResponse {
+  submissionId: string;
+  startedAt: string;
+  attempt: number;
+  // Server clock at the time of this response, used to align the countdown with the real deadline.
+  serverNow: string;
+  answers: StartExamAnswer[];
 }
 
 export interface SubmissionAnswerDetail {

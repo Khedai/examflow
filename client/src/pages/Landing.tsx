@@ -29,7 +29,7 @@ export default function Landing() {
     setError('');
     try {
       const data = await studentLogin({ name: name.trim(), surname: surname.trim(), studentId: studentId.trim(), cell });
-      loginStudent(data.token, data.student);
+      loginStudent(data.token, data.student, data.authToken);
       navigate('/student');
     } catch (err: any) {
       setError(err.message || 'Login failed');
