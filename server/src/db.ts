@@ -19,6 +19,13 @@ async function getBackend(): Promise<DbClient> {
 
   const pgUrl = process.env.DATABASE_URL;
 
+  // Production must never silently start against a fresh local SQLite file. That would make
+  // existing exams and submissions appear to have vanished when DATABASE_URL is missing or
+  // misconfigured.
+  if (process.env.NODE_ENV === 'production' && (!pgUrl || !/^postgres(?:ql)?:\/\//i.test(pgUrl))) {
+    throw new Error('[db] DATABASE_URL must be a PostgreSQL connection string in production');
+  }
+
   // Check if we should use PostgreSQL
   if (pgUrl && pgUrl.startsWith('postgres')) {
     try {
